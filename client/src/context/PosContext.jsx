@@ -161,6 +161,20 @@ export const PosProvider = ({ children }) => {
       fetchZones();
       if (selectedTable) fetchOrderForTable(selectedTable.id);
     });
+    s.on('customer:order_submitted', () => {
+      fetchTables();
+      fetchZones();
+      if (selectedTable) fetchOrderForTable(selectedTable.id);
+    });
+    s.on('kitchen:new_order', () => {
+      fetchTables();
+      fetchZones();
+      if (selectedTable) fetchOrderForTable(selectedTable.id);
+    });
+    s.on('kitchen:item_status_changed', () => {
+      fetchTables();
+      if (selectedTable) fetchOrderForTable(selectedTable.id);
+    });
     s.on('payment:completed', () => {
       fetchTables();
       fetchZones();

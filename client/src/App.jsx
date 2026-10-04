@@ -383,6 +383,7 @@ const MainAppContent = () => {
             table={selectedTable} 
             onBackToFloor={() => setActiveTab('floor')} 
             onOrderSubmitted={() => setActiveTab('floor')}
+            onOpenCheckout={handleOpenCheckout}
           />
         )}
 
@@ -424,7 +425,7 @@ const MainAppContent = () => {
       {/* Modals */}
       {modalTable && (
         <TableActionModal
-          table={modalTable}
+          table={tables.find(t => t.id === modalTable.id) || modalTable}
           onClose={() => setModalTable(null)}
           onGoToOrder={handleGoToOrder}
           onOpenCheckout={handleOpenCheckout}

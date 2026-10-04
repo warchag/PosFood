@@ -30,7 +30,8 @@ export const TableActionModal = ({
     cancelTable,
     fetchOrderForTable, 
     transferTable, 
-    tables 
+    tables,
+    socket 
   } = usePos();
 
   const [orderData, setOrderData] = useState(null);
@@ -41,19 +42,42 @@ export const TableActionModal = ({
   const [targetTableId, setTargetTableId] = useState('');
   const [cancelling, setCancelling] = useState(false);
 
+  const loadOrder = useCallback(async () => {
+    if (!table?.id) return;
+    setLoading(true);
+    if (table.current_order_id || table.status !== 'available') {
+      const data = await fetchOrderForTable(table.id);
+      setOrderData(data);
+    } else {
+      setOrderData(null);
+    }
+    setLoading(false);
+  }, [table?.id, table?.current_order_id, table?.status, fetchOrderForTable]);
+
   useEffect(() => {
-    let isMounted = true;
-    const load = async () => {
-      setLoading(true);
-      if (table.current_order_id || table.status !== 'available') {
-        const data = await fetchOrderForTable(table.id);
-        if (isMounted) setOrderData(data);
-      }
-      if (isMounted) setLoading(false);
+    loadOrder();
+  }, [loadOrder]);
+
+  // Real-time updates via Socket.io
+  useEffect(() => {
+    if (!socket) return;
+    const handleUpdate = () => {
+      loadOrder();
     };
-    load();
-    return () => { isMounted = false; };
-  }, [table, fetchOrderForTable]);
+    socket.on('order:updated', handleUpdate);
+    socket.on('customer:order_submitted', handleUpdate);
+    socket.on('kitchen:item_status_changed', handleUpdate);
+    socket.on('kitchen:new_order', handleUpdate);
+    socket.on('payment:completed', handleUpdate);
+
+    return () => {
+      socket.off('order:updated', handleUpdate);
+      socket.off('customer:order_submitted', handleUpdate);
+      socket.off('kitchen:item_status_changed', handleUpdate);
+      socket.off('kitchen:new_order', handleUpdate);
+      socket.off('payment:completed', handleUpdate);
+    };
+  }, [socket, loadOrder]);
 
   const handleOpenTable = async () => {
     const success = await openTable(table.id, guestCount, notes);

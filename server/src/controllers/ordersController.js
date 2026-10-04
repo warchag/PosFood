@@ -63,7 +63,7 @@ const getOrder = async (req, res) => {
     `;
 
     if (byTable === 'true') {
-      orderQuery += ` t.id = $1 AND o.status = 'active'`;
+      orderQuery += ` t.id = $1 AND (o.id = t.current_order_id OR (t.current_order_id IS NULL AND o.status = 'active')) ORDER BY o.id DESC LIMIT 1`;
     } else {
       orderQuery += ` o.id = $1`;
     }

@@ -13,10 +13,12 @@ import {
   MessageSquare,
   Sparkles,
   ArrowLeft,
-  UserX
+  UserX,
+  CreditCard,
+  ChefHat
 } from 'lucide-react';
 
-export const MenuView = ({ table, onBackToFloor, onOrderSubmitted }) => {
+export const MenuView = ({ table, onBackToFloor, onOrderSubmitted, onOpenCheckout }) => {
   const { 
     categories, 
     menuItems, 
@@ -26,8 +28,13 @@ export const MenuView = ({ table, onBackToFloor, onOrderSubmitted }) => {
     updateCartQuantity, 
     clearCart,
     submitCartToOrder,
-    cancelTable 
+    cancelTable,
+    fetchOrderForTable,
+    socket
   } = usePos();
+
+  const [activeOrderData, setActiveOrderData] = useState(null);
+  const [sidebarTab, setSidebarTab] = useState('cart');
 
   const [activeCategoryId, setActiveCategoryId] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -46,6 +53,35 @@ export const MenuView = ({ table, onBackToFloor, onOrderSubmitted }) => {
 
   const cartTotal = cart.reduce((acc, curr) => acc + (parseFloat(curr.menuItem.price) * curr.quantity), 0);
 
+  // Load active order for this table
+  const loadActiveOrder = React.useCallback(async () => {
+    if (!table?.id) return;
+    const data = await fetchOrderForTable(table.id);
+    setActiveOrderData(data);
+    if (cart.length === 0 && data?.items?.length > 0) {
+      setSidebarTab('ordered');
+    }
+  }, [table?.id, fetchOrderForTable, cart.length]);
+
+  React.useEffect(() => {
+    loadActiveOrder();
+  }, [loadActiveOrder]);
+
+  React.useEffect(() => {
+    if (!socket) return;
+    const handleUpdate = () => loadActiveOrder();
+    socket.on('order:updated', handleUpdate);
+    socket.on('customer:order_submitted', handleUpdate);
+    socket.on('kitchen:item_status_changed', handleUpdate);
+    socket.on('kitchen:new_order', handleUpdate);
+    return () => {
+      socket.off('order:updated', handleUpdate);
+      socket.off('customer:order_submitted', handleUpdate);
+      socket.off('kitchen:item_status_changed', handleUpdate);
+      socket.off('kitchen:new_order', handleUpdate);
+    };
+  }, [socket, loadActiveOrder]);
+
   const handleAddWithNote = (dish) => {
     setSelectedNoteItem(dish);
     setItemNoteText('');
@@ -54,6 +90,7 @@ export const MenuView = ({ table, onBackToFloor, onOrderSubmitted }) => {
   const confirmAddNote = () => {
     if (selectedNoteItem) {
       addToCart(selectedNoteItem, 1, itemNoteText);
+      setSidebarTab('cart');
       setSelectedNoteItem(null);
       setItemNoteText('');
     }
@@ -239,6 +276,7 @@ export const MenuView = ({ table, onBackToFloor, onOrderSubmitted }) => {
                       onClick={(e) => {
                         e.stopPropagation();
                         addToCart(dish, 1);
+                        setSidebarTab('cart');
                       }}
                       className="btn btn-primary"
                       style={{
@@ -257,107 +295,263 @@ export const MenuView = ({ table, onBackToFloor, onOrderSubmitted }) => {
         </div>
       </div>
 
-      {/* Cart Sidebar for Current Table (Apple macOS / iPad Inspector) */}
+      {/* Cart Sidebar for Current Table */}
       <div className="cart-sidebar">
-        <div className="cart-header">
-          <div>
-            <h3>
-              รายการที่เลือก ({cart.reduce((a, c) => a + c.quantity, 0)})
-            </h3>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-              โต๊ะ {table?.table_number || '-'} • รอส่งเข้าครัว
-            </p>
-          </div>
-          {cart.length > 0 && (
-            <button 
-              onClick={clearCart}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--status-occupied)',
-                fontSize: '0.78rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              <Trash2 size={13} /> ล้างทั้งหมด
-            </button>
-          )}
-        </div>
-
-        {/* Cart Items List */}
-        <div className="cart-items-scroll">
-          {cart.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
-              <Utensils size={40} style={{ margin: '0 auto 1rem', opacity: 0.3 }} />
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>ยังไม่มีรายการอาหารในตะกร้า</p>
-              <p style={{ fontSize: '0.75rem', marginTop: '4px' }}>คลิกที่เมนูอาหารด้านซ้ายเพื่อเลือกรายการ</p>
-            </div>
-          ) : (
-            cart.map((item, index) => (
-              <div key={index} className="cart-item-row">
-                <div style={{ flex: 1, paddingRight: '8px' }}>
-                  <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                    {item.menuItem.name}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--apple-blue)', marginTop: '2px', fontWeight: 600 }}>
-                    ฿{parseFloat(item.menuItem.price).toLocaleString()}
-                  </div>
-                  {item.notes && (
-                    <div style={{ fontSize: '0.72rem', color: 'var(--apple-blue)', marginTop: '3px' }}>
-                      ✎ {item.notes}
-                    </div>
-                  )}
-                </div>
-
-                {/* Quantity Controls (Apple Stepper) */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <button
-                    className="stepper-btn"
-                    onClick={() => updateCartQuantity(index, -1)}
-                  >
-                    <Minus size={12} />
-                  </button>
-
-                  <span style={{ fontSize: '0.85rem', fontWeight: 700, minWidth: '18px', textAlign: 'center', color: 'var(--text-main)' }}>
-                    {item.quantity}
-                  </span>
-
-                  <button
-                    className="stepper-btn"
-                    onClick={() => updateCartQuantity(index, 1)}
-                  >
-                    <Plus size={12} />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Cart Summary & Send to Kitchen Button */}
-        <div className="cart-summary">
-          <div className="summary-row">
-            <span>จำนวนรายการ</span>
-            <span>{cart.reduce((a, c) => a + c.quantity, 0)} จาน</span>
-          </div>
-          <div className="summary-total">
-            <span>ยอดรวมรอบนี้</span>
-            <span style={{ color: 'var(--apple-blue)' }}>฿{cartTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
-          </div>
+        {/* Dual Tab Header (Kitchen Ordered vs New Cart) */}
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-canvas)' }}>
+          <button
+            type="button"
+            onClick={() => setSidebarTab('ordered')}
+            style={{
+              flex: 1,
+              padding: '10px 4px',
+              border: 'none',
+              background: sidebarTab === 'ordered' ? 'var(--bg-surface)' : 'transparent',
+              color: sidebarTab === 'ordered' ? 'var(--nv-primary, #76b900)' : 'var(--text-secondary)',
+              borderBottom: sidebarTab === 'ordered' ? '2px solid var(--nv-primary, #76b900)' : 'none',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'var(--transition-fast)'
+            }}
+          >
+            <ChefHat size={14} />
+            <span>ในครัว ({activeOrderData?.items?.length || 0})</span>
+          </button>
 
           <button
-            className="btn btn-primary"
-            style={{ width: '100%', marginTop: '1rem', padding: '0.85rem' }}
-            disabled={cart.length === 0 || submitting}
-            onClick={handleSubmitOrder}
+            type="button"
+            onClick={() => setSidebarTab('cart')}
+            style={{
+              flex: 1,
+              padding: '10px 4px',
+              border: 'none',
+              background: sidebarTab === 'cart' ? 'var(--bg-surface)' : 'transparent',
+              color: sidebarTab === 'cart' ? 'var(--apple-blue)' : 'var(--text-secondary)',
+              borderBottom: sidebarTab === 'cart' ? '2px solid var(--apple-blue)' : 'none',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'var(--transition-fast)'
+            }}
           >
-            <Send size={16} />
-            {submitting ? 'กำลังส่งข้อมูล...' : 'ส่งออเดอร์เข้าครัว (Send to Kitchen)'}
+            <Plus size={14} />
+            <span>สั่งเพิ่ม ({cart.reduce((a, c) => a + c.quantity, 0)})</span>
           </button>
         </div>
+
+        {sidebarTab === 'ordered' ? (
+          /* 1. Already Ordered Items (Sent to kitchen) */
+          <>
+            <div className="cart-header">
+              <div>
+                <h3>
+                  รายการในครัว ({activeOrderData?.items?.length || 0} รายการ)
+                </h3>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  โต๊ะ {table?.table_number || '-'} • บิล {activeOrderData?.order_number || '-'}
+                </p>
+              </div>
+            </div>
+
+            <div className="cart-items-scroll">
+              {(!activeOrderData?.items || activeOrderData.items.length === 0) ? (
+                <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+                  <Utensils size={40} style={{ margin: '0 auto 1rem', opacity: 0.3 }} />
+                  <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>ยังไม่มีรายการอาหารที่สั่งในโต๊ะนี้</p>
+                  <p style={{ fontSize: '0.75rem', marginTop: '4px' }}>กดแท็บ "สั่งเพิ่ม" เพื่อเลือกเมนูและส่งเข้าครัว</p>
+                </div>
+              ) : (
+                activeOrderData.items.map(item => (
+                  <div key={item.id} className="cart-item-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ flex: 1, paddingRight: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ 
+                          background: 'var(--apple-blue-tint)', 
+                          color: 'var(--apple-blue)', 
+                          padding: '1px 6px', 
+                          borderRadius: '2px', 
+                          fontSize: '0.75rem', 
+                          fontWeight: 800 
+                        }}>
+                          {item.quantity}x
+                        </span>
+                        <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                          {item.item_name}
+                        </span>
+                      </div>
+                      {item.notes && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          • {item.notes}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--apple-blue)' }}>
+                        ฿{parseFloat(item.total_price).toFixed(2)}
+                      </div>
+                      <span style={{
+                        fontSize: '0.68rem',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        background: item.status === 'served' ? 'var(--status-available-bg)' : item.status === 'cooking' ? 'var(--status-ordered-bg)' : 'rgba(255,255,255,0.06)',
+                        color: item.status === 'served' ? 'var(--status-available-text)' : item.status === 'cooking' ? 'var(--status-ordered-text)' : 'var(--text-secondary)'
+                      }}>
+                        {item.status === 'served' ? '✓ เสิร์ฟแล้ว' : item.status === 'cooking' ? '🍳 กำลังปรุง' : '⏳ รอคิว'}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Ordered Items Summary & Actions */}
+            <div className="cart-summary">
+              <div className="summary-row">
+                <span>จำนวนที่สั่งทั้งหมด</span>
+                <span>{activeOrderData?.items?.reduce((a, c) => a + c.quantity, 0) || 0} จาน</span>
+              </div>
+              <div className="summary-total">
+                <span>ยอดรวมปัจจุบัน</span>
+                <span style={{ color: 'var(--nv-primary, #76b900)' }}>
+                  ฿{parseFloat(activeOrderData?.total_amount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '1rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ flex: 1, padding: '0.75rem', fontWeight: 700 }}
+                  onClick={() => setSidebarTab('cart')}
+                >
+                  <Plus size={15} /> สั่งเพิ่ม
+                </button>
+                {onOpenCheckout && activeOrderData?.items?.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ flex: 1, padding: '0.75rem', fontWeight: 700 }}
+                    onClick={() => onOpenCheckout(activeOrderData)}
+                  >
+                    <CreditCard size={15} /> คิดเงิน
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          /* 2. New Cart Items (Pending Submission) */
+          <>
+            <div className="cart-header">
+              <div>
+                <h3>
+                  รายการที่เลือกสั่งเพิ่ม ({cart.reduce((a, c) => a + c.quantity, 0)})
+                </h3>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  โต๊ะ {table?.table_number || '-'} • รอส่งเข้าครัว
+                </p>
+              </div>
+              {cart.length > 0 && (
+                <button 
+                  onClick={clearCart}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--status-occupied)',
+                    fontSize: '0.78rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <Trash2 size={13} /> ล้างทั้งหมด
+                </button>
+              )}
+            </div>
+
+            {/* Cart Items List */}
+            <div className="cart-items-scroll">
+              {cart.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+                  <Utensils size={40} style={{ margin: '0 auto 1rem', opacity: 0.3 }} />
+                  <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>ยังไม่มีรายการอาหารในตะกร้า</p>
+                  <p style={{ fontSize: '0.75rem', marginTop: '4px' }}>คลิกที่เมนูอาหารด้านซ้ายเพื่อเลือกรายการ</p>
+                </div>
+              ) : (
+                cart.map((item, index) => (
+                  <div key={index} className="cart-item-row">
+                    <div style={{ flex: 1, paddingRight: '8px' }}>
+                      <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                        {item.menuItem.name}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--apple-blue)', marginTop: '2px', fontWeight: 600 }}>
+                        ฿{parseFloat(item.menuItem.price).toLocaleString()}
+                      </div>
+                      {item.notes && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--apple-blue)', marginTop: '3px' }}>
+                          ✎ {item.notes}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quantity Controls (Apple Stepper) */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        className="stepper-btn"
+                        onClick={() => updateCartQuantity(index, -1)}
+                      >
+                        <Minus size={12} />
+                      </button>
+
+                      <span style={{ fontSize: '0.85rem', fontWeight: 700, minWidth: '18px', textAlign: 'center', color: 'var(--text-main)' }}>
+                        {item.quantity}
+                      </span>
+
+                      <button
+                        className="stepper-btn"
+                        onClick={() => updateCartQuantity(index, 1)}
+                      >
+                        <Plus size={12} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Cart Summary & Send to Kitchen Button */}
+            <div className="cart-summary">
+              <div className="summary-row">
+                <span>จำนวนรายการใหม่</span>
+                <span>{cart.reduce((a, c) => a + c.quantity, 0)} จาน</span>
+              </div>
+              <div className="summary-total">
+                <span>ยอดรวมรอบนี้</span>
+                <span style={{ color: 'var(--apple-blue)' }}>฿{cartTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+              </div>
+
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', marginTop: '1rem', padding: '0.85rem' }}
+                disabled={cart.length === 0 || submitting}
+                onClick={handleSubmitOrder}
+              >
+                <Send size={16} />
+                {submitting ? 'กำลังส่งข้อมูล...' : 'ส่งออเดอร์เข้าครัว (Send to Kitchen)'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Note modal */}
