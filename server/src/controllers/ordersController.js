@@ -294,16 +294,20 @@ const customerOrder = async (req, res, io) => {
     }
 
     // Security Check 2: Session Table PIN Verification
-    if (table.current_pin) {
-      const providedPin = (pin || '').toString().trim();
-      if (!providedPin || providedPin !== table.current_pin.toString().trim()) {
-        await client.query('ROLLBACK');
-        return res.status(403).json({
-          success: false,
-          error: 'รหัสโต๊ะ (PIN) ไม่ถูกต้อง กรุณาสอบถามรหัส 4 หลักจากพนักงานที่ร้าน',
-          code: 'INVALID_PIN'
-        });
-      }
+    let activePin = table.current_pin;
+    if (!activePin) {
+      activePin = Math.floor(1000 + Math.random() * 9000).toString();
+      await client.query('UPDATE restaurant_tables SET current_pin = $1 WHERE id = $2', [activePin, table_id]);
+    }
+
+    const providedPin = (pin || '').toString().trim();
+    if (!providedPin || providedPin !== activePin.toString().trim()) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        success: false,
+        error: 'รหัสโต๊ะ (PIN) ไม่ถูกต้อง กรุณาสอบถามรหัส 4 หลักจากพนักงานที่ร้าน',
+        code: 'INVALID_PIN'
+      });
     }
 
     // 2. If table is opened but no order ID yet, create one
@@ -400,6 +404,13 @@ const getCustomerOrderStatus = async (req, res) => {
     const table = tableRes.rows[0];
     const isTableOpen = table.status !== 'available';
 
+    // If table is open but has no PIN, generate one now so it is never bypassed
+    if (isTableOpen && !table.current_pin) {
+      const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
+      await db.query('UPDATE restaurant_tables SET current_pin = $1 WHERE id = $2', [generatedPin, table.id]);
+      table.current_pin = generatedPin;
+    }
+
     if (!table.current_order_id || !isTableOpen) {
       return res.json({
         success: true,
@@ -408,7 +419,7 @@ const getCustomerOrderStatus = async (req, res) => {
           table_id: table.id,
           table_status: table.status,
           is_table_open: isTableOpen,
-          requires_pin: isTableOpen && !!table.current_pin,
+          requires_pin: isTableOpen,
           has_active_order: false,
           items: []
         }
@@ -424,7 +435,7 @@ const getCustomerOrderStatus = async (req, res) => {
           table_id: table.id,
           table_status: table.status,
           is_table_open: isTableOpen,
-          requires_pin: isTableOpen && !!table.current_pin,
+          requires_pin: isTableOpen,
           has_active_order: false,
           items: []
         }
@@ -448,7 +459,7 @@ const getCustomerOrderStatus = async (req, res) => {
         table_id: table.id,
         table_status: table.status,
         is_table_open: isTableOpen,
-        requires_pin: isTableOpen && !!table.current_pin,
+        requires_pin: isTableOpen,
         has_active_order: true,
         order: {
           id: order.id,

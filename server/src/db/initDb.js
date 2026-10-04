@@ -33,6 +33,12 @@ async function initializeDatabase() {
       // Ensure current_pin and table_pin columns exist
       await db.query('ALTER TABLE restaurant_tables ADD COLUMN IF NOT EXISTS current_pin VARCHAR(10)');
       await db.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS table_pin VARCHAR(10)');
+      // Auto-assign 4-digit PIN for any active tables that don't have one yet
+      await db.query(`
+        UPDATE restaurant_tables 
+        SET current_pin = FLOOR(1000 + RANDOM() * 9000)::text 
+        WHERE current_pin IS NULL AND status != 'available'
+      `);
     }
   } catch (err) {
     console.error('❌ Database initialization error:', err.message);

@@ -217,8 +217,8 @@ export const CustomerOrderView = ({ tableNumber }) => {
       return;
     }
 
-    // Require PIN if table has active session PIN and customer hasn't entered it
-    if (orderStatusData?.requires_pin && !tablePin) {
+    // Require PIN for customer QR ordering:
+    if (!tablePin) {
       setPinError('');
       setPinInput('');
       setShowPinModal(true);
@@ -966,23 +966,49 @@ export const CustomerOrderView = ({ tableNumber }) => {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {orderStatusData?.requires_pin && (
-                    <div style={{
-                      padding: '8px 10px',
-                      background: tablePin ? 'rgba(118, 185, 0, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-                      border: `1px solid ${tablePin ? 'rgba(118, 185, 0, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
-                      borderRadius: '2px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      fontSize: '0.75rem'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Key size={14} color={tablePin ? 'var(--nv-primary, #76b900)' : '#fbbf24'} />
-                        <span style={{ color: tablePin ? '#86efac' : '#fbbf24', fontWeight: 600 }}>
-                          {tablePin ? 'รหัส PIN ประจำโต๊ะ: ยืนยันแล้ว' : 'ต้องใส่ PIN 4 หลักเพื่อส่งเข้าครัว'}
-                        </span>
-                      </div>
+                  <div style={{
+                    padding: '8px 10px',
+                    background: tablePin ? 'rgba(118, 185, 0, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                    border: `1px solid ${tablePin ? 'rgba(118, 185, 0, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                    borderRadius: '2px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: '0.75rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Key size={14} color={tablePin ? 'var(--nv-primary, #76b900)' : '#fbbf24'} />
+                      <span style={{ color: tablePin ? '#86efac' : '#fbbf24', fontWeight: 600 }}>
+                        {tablePin ? `PIN โต๊ะ: ${tablePin} (ยืนยันแล้ว)` : 'ต้องใส่ PIN 4 หลักเพื่อส่งเข้าครัว'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {tablePin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTablePin('');
+                            try {
+                              sessionStorage.removeItem(`pos_pin_${tableNumber}`);
+                            } catch (e) {}
+                            setPinError('');
+                            setPinInput('');
+                          }}
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.15)',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            borderRadius: '2px',
+                            color: '#f87171',
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            padding: '2px 6px'
+                          }}
+                          title="ล้าง PIN เพื่อทดสอบจำลองเป็นคนนอก"
+                        >
+                          ล้าง PIN (เทสคนนอก)
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => {
@@ -1004,7 +1030,7 @@ export const CustomerOrderView = ({ tableNumber }) => {
                         {tablePin ? 'เปลี่ยน PIN' : 'กรอก PIN'}
                       </button>
                     </div>
-                  )}
+                  </div>
 
                   <button
                     type="button"
