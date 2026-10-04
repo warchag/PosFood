@@ -283,8 +283,18 @@ const customerOrder = async (req, res, io) => {
     table_id = table.id;
     let orderId = table.current_order_id;
 
-    // 2. If table doesn't have an active order, create one
-    if (!orderId || table.status === 'available') {
+    // Security Check: Table MUST be opened by staff first!
+    if (table.status === 'available') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        success: false,
+        error: `โต๊ะ ${table.table_number} ยังไม่ได้เปิดให้บริการ กรุณาแจ้งพนักงานเพื่อเปิดโต๊ะก่อนส่งออเดอร์`,
+        code: 'TABLE_NOT_OPEN'
+      });
+    }
+
+    // 2. If table is opened but no order ID yet, create one
+    if (!orderId) {
       const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
       const orderRes = await client.query(
         `INSERT INTO orders (order_number, table_id, status, guest_count, notes, staff_name, vat_rate, service_charge_rate)
@@ -375,12 +385,16 @@ const getCustomerOrderStatus = async (req, res) => {
     }
 
     const table = tableRes.rows[0];
-    if (!table.current_order_id || table.status === 'available') {
+    const isTableOpen = table.status !== 'available';
+
+    if (!table.current_order_id || !isTableOpen) {
       return res.json({
         success: true,
         data: {
           table_number: table.table_number,
           table_id: table.id,
+          table_status: table.status,
+          is_table_open: isTableOpen,
           has_active_order: false,
           items: []
         }
@@ -394,6 +408,8 @@ const getCustomerOrderStatus = async (req, res) => {
         data: {
           table_number: table.table_number,
           table_id: table.id,
+          table_status: table.status,
+          is_table_open: isTableOpen,
           has_active_order: false,
           items: []
         }
@@ -415,6 +431,8 @@ const getCustomerOrderStatus = async (req, res) => {
       data: {
         table_number: table.table_number,
         table_id: table.id,
+        table_status: table.status,
+        is_table_open: isTableOpen,
         has_active_order: true,
         order: {
           id: order.id,
@@ -440,6 +458,7 @@ const customerCallStaff = async (req, res, io) => {
   }
 
   const callTypeNames = {
+    request_open_table: 'ขอเปิดโต๊ะอาหาร (ลูกค้านั่งที่โต๊ะแล้ว)',
     call_waiter: 'เรียกพนักงานบริการ',
     bill: 'ขอเช็คบิล / ชำระเงิน',
     water: 'ขอน้ำเปล่า / น้ำแข็ง',

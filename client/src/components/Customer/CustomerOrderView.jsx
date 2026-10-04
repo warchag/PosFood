@@ -17,7 +17,8 @@ import {
   MessageSquare,
   Coffee,
   HelpCircle,
-  CreditCard
+  CreditCard,
+  Lock
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { io } from 'socket.io-client';
@@ -92,6 +93,11 @@ export const CustomerOrderView = ({ tableNumber }) => {
     socket.on('order:updated', () => fetchOrderStatus());
     socket.on('kitchen:item_status_changed', () => fetchOrderStatus());
     socket.on('payment:completed', () => fetchOrderStatus());
+    socket.on('table:opened', () => fetchOrderStatus());
+    socket.on('table:freed', () => fetchOrderStatus());
+    socket.on('table:status_changed', () => fetchOrderStatus());
+    socket.on('table:layout_updated', () => fetchOrderStatus());
+    socket.on('tables:batch_updated', () => fetchOrderStatus());
 
     return () => socket.disconnect();
   }, [fetchOrderStatus]);
@@ -141,6 +147,11 @@ export const CustomerOrderView = ({ tableNumber }) => {
   const handleSubmitOrder = async () => {
     if (cart.length === 0 || isSubmitting) return;
 
+    if (orderStatusData && !orderStatusData.is_table_open) {
+      alert('🔒 โต๊ะยังไม่เปิดให้บริการในระบบ POS กรุณาแจ้งพนักงานเพื่อเปิดโต๊ะก่อนส่งออเดอร์');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const res = await fetch('/api/customer/order', {
@@ -176,7 +187,12 @@ export const CustomerOrderView = ({ tableNumber }) => {
         fetchOrderStatus();
         setIsStatusModalOpen(true);
       } else {
-        alert(json.error || 'เกิดข้อผิดพลาดในการส่งออเดอร์');
+        if (json.code === 'TABLE_NOT_OPEN' || json.error === 'TABLE_NOT_OPEN') {
+          alert('🔒 ' + (json.error || json.message || 'โต๊ะยังไม่เปิดให้บริการ กรุณาแจ้งพนักงานเพื่อเปิดโต๊ะ'));
+          fetchOrderStatus();
+        } else {
+          alert(json.error || 'เกิดข้อผิดพลาดในการส่งออเดอร์');
+        }
       }
     } catch (err) {
       setIsSubmitting(false);
@@ -380,6 +396,65 @@ export const CustomerOrderView = ({ tableNumber }) => {
         })}
       </nav>
 
+      {/* Table Status Lock Banner (if table is not open) */}
+      {orderStatusData && !orderStatusData.is_table_open && (
+        <div style={{
+          margin: '0.85rem 1rem 0',
+          padding: '0.85rem 1rem',
+          background: 'rgba(245, 158, 11, 0.08)',
+          border: '1px solid rgba(245, 158, 11, 0.35)',
+          borderRadius: 'var(--rounded-xs, 2px)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+            <div style={{
+              width: '28px',
+              height: '28px',
+              borderRadius: '2px',
+              background: 'rgba(245, 158, 11, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              <Lock size={16} color="#f59e0b" />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#fbbf24' }}>
+                โต๊ะ {tableNumber} ยังไม่เปิดให้บริการในระบบ POS
+              </div>
+              <div style={{ fontSize: '0.74rem', color: '#a1a1aa', marginTop: '2px', lineHeight: 1.4 }}>
+                คุณสามารถเลือกดูเมนูและเพิ่มลงตะกร้าได้ล่วงหน้า เมื่อพนักงานเปิดโต๊ะแล้วจะสามารถกดยืนยันสั่งได้ทันที
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleCallStaff('request_open_table')}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              background: 'rgba(245, 158, 11, 0.15)',
+              border: '1px solid #f59e0b',
+              borderRadius: '2px',
+              color: '#fbbf24',
+              fontSize: '0.8rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px'
+            }}
+          >
+            <Bell size={13} />
+            <span>🙋 เรียกพนักงานมาเปิดโต๊ะให้</span>
+          </button>
+        </div>
+      )}
+
       {/* 3. Menu Item List */}
       <main style={{ padding: '1rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
@@ -512,14 +587,16 @@ export const CustomerOrderView = ({ tableNumber }) => {
               width: '100%',
               height: '54px',
               background: '#000000',
-              border: '2px solid var(--nv-primary, #76b900)',
+              border: `2px solid ${orderStatusData && !orderStatusData.is_table_open ? '#f59e0b' : 'var(--nv-primary, #76b900)'}`,
               borderRadius: 'var(--rounded-xs, 2px)',
               padding: '0 16px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               cursor: 'pointer',
-              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.8), 0 0 20px rgba(118, 185, 0, 0.3)',
+              boxShadow: orderStatusData && !orderStatusData.is_table_open
+                ? '0 10px 25px -5px rgba(0, 0, 0, 0.8), 0 0 20px rgba(245, 158, 11, 0.3)'
+                : '0 10px 25px -5px rgba(0, 0, 0, 0.8), 0 0 20px rgba(118, 185, 0, 0.3)',
               color: '#ffffff'
             }}
           >
@@ -528,7 +605,7 @@ export const CustomerOrderView = ({ tableNumber }) => {
                 width: '32px',
                 height: '32px',
                 borderRadius: '2px',
-                background: 'var(--nv-primary, #76b900)',
+                background: orderStatusData && !orderStatusData.is_table_open ? '#f59e0b' : 'var(--nv-primary, #76b900)',
                 color: '#000000',
                 display: 'flex',
                 alignItems: 'center',
@@ -539,16 +616,27 @@ export const CustomerOrderView = ({ tableNumber }) => {
                 {cartItemCount}
               </div>
               <div style={{ textAlign: 'left' }}>
-                <div style={{ fontSize: '0.85rem', fontWeight: 800 }}>ดูรายการในตะกร้า</div>
-                <div style={{ fontSize: '0.72rem', color: '#a1a1aa' }}>กดเพื่อตรวจสอบ & ส่งเข้าครัว</div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>ดูรายการในตะกร้า</span>
+                  {orderStatusData && !orderStatusData.is_table_open && (
+                    <span style={{ fontSize: '0.68rem', color: '#fbbf24', background: 'rgba(245, 158, 11, 0.2)', padding: '1px 5px', borderRadius: '2px' }}>
+                      🔒 รอเปิดโต๊ะ
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#a1a1aa' }}>
+                  {orderStatusData && !orderStatusData.is_table_open
+                    ? 'โต๊ะยังไม่เปิด • รอพนักงานเปิดโต๊ะ'
+                    : 'กดเพื่อตรวจสอบ & ส่งเข้าครัว'}
+                </div>
               </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '1.15rem', fontWeight: 900, color: 'var(--nv-primary, #76b900)' }}>
+              <span style={{ fontSize: '1.15rem', fontWeight: 900, color: orderStatusData && !orderStatusData.is_table_open ? '#f59e0b' : 'var(--nv-primary, #76b900)' }}>
                 ฿{cartTotal.toFixed(2)}
               </span>
-              <ChevronRight size={18} color="var(--nv-primary, #76b900)" />
+              <ChevronRight size={18} color={orderStatusData && !orderStatusData.is_table_open ? '#f59e0b' : 'var(--nv-primary, #76b900)'} />
             </div>
           </button>
         </div>
@@ -724,35 +812,102 @@ export const CustomerOrderView = ({ tableNumber }) => {
                 </span>
               </div>
 
-              <button
-                type="button"
-                onClick={handleSubmitOrder}
-                disabled={isSubmitting}
-                style={{
-                  width: '100%',
-                  height: '48px',
-                  background: 'var(--nv-primary, #76b900)',
-                  border: 'none',
-                  borderRadius: 'var(--rounded-xs, 2px)',
-                  color: '#000000',
-                  fontSize: '0.95rem',
-                  fontWeight: 900,
-                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px'
-                }}
-              >
-                {isSubmitting ? (
-                  <span>กำลังส่งเข้าครัว...</span>
-                ) : (
-                  <>
-                    <Sparkles size={16} />
-                    <span>ยืนยันการสั่งอาหาร (ส่งเข้าครัว)</span>
-                  </>
-                )}
-              </button>
+              {orderStatusData && !orderStatusData.is_table_open ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{
+                    padding: '8px 10px',
+                    background: 'rgba(245, 158, 11, 0.1)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    borderRadius: '2px',
+                    fontSize: '0.75rem',
+                    color: '#fbbf24',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    <Lock size={14} style={{ flexShrink: 0 }} />
+                    <span>โต๊ะยังไม่ได้เปิดในระบบ POS กรุณาแจ้งพนักงานเพื่อเปิดโต๊ะก่อนส่งออเดอร์</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled
+                    style={{
+                      width: '100%',
+                      height: '46px',
+                      background: '#27272a',
+                      border: '1px solid #3f3f46',
+                      borderRadius: 'var(--rounded-xs, 2px)',
+                      color: '#71717a',
+                      fontSize: '0.9rem',
+                      fontWeight: 800,
+                      cursor: 'not-allowed',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    <Lock size={16} />
+                    <span>🔒 รอพนักงานเปิดโต๊ะก่อนส่งออเดอร์</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleCallStaff('request_open_table');
+                    }}
+                    style={{
+                      width: '100%',
+                      height: '42px',
+                      background: 'rgba(245, 158, 11, 0.2)',
+                      border: '1px solid #f59e0b',
+                      borderRadius: 'var(--rounded-xs, 2px)',
+                      color: '#fbbf24',
+                      fontSize: '0.85rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Bell size={15} />
+                    <span>🙋 เรียกพนักงานมาเปิดโต๊ะให้</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSubmitOrder}
+                  disabled={isSubmitting}
+                  style={{
+                    width: '100%',
+                    height: '48px',
+                    background: 'var(--nv-primary, #76b900)',
+                    border: 'none',
+                    borderRadius: 'var(--rounded-xs, 2px)',
+                    color: '#000000',
+                    fontSize: '0.95rem',
+                    fontWeight: 900,
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  {isSubmitting ? (
+                    <span>กำลังส่งเข้าครัว...</span>
+                  ) : (
+                    <>
+                      <Sparkles size={16} />
+                      <span>ยืนยันการสั่งอาหาร (ส่งเข้าครัว)</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1181,6 +1336,7 @@ export const CustomerOrderView = ({ tableNumber }) => {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {[
+                    { type: 'request_open_table', label: '🔓 ขอเปิดโต๊ะอาหาร (ลูกค้านั่งที่โต๊ะแล้ว)', icon: HelpCircle },
                     { type: 'call_waiter', label: '🙋 เรียกพนักงานมารับบริการ', icon: HelpCircle },
                     { type: 'bill', label: '💳 ขอเช็คบิล / ชำระเงิน', icon: CreditCard },
                     { type: 'water', label: '🧊 ขอน้ำดื่ม / น้ำแข็งเพิ่ม', icon: Coffee },
