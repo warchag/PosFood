@@ -1623,3 +1623,39 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
   color: #facc15;
   border: 1px solid #eab308;
 }
+
+/* ==========================================================================
+   A4 PRINT STYLES FOR SALES REPORTS (window.print() / Save as PDF)
+   ========================================================================== */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #pdf-report-print-area, #pdf-report-print-area * {
+    visibility: visible;
+  }
+  #pdf-report-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 12mm 15mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+}
