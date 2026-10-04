@@ -188,7 +188,7 @@ export const CustomerOrderView = ({ tableNumber }) => {
       });
       const data = await res.json();
       setIsVerifyingPin(false);
-      if (data.success && data.valid) {
+      if (data.success) {
         setTablePin(cleanPin);
         try {
           sessionStorage.setItem(`pos_pin_${tableNumber}`, cleanPin);

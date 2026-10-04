@@ -266,8 +266,8 @@ const customerOrder = async (req, res, io) => {
       tableQuery += 'id = $1 FOR UPDATE';
       tableParams.push(table_id);
     } else if (table_number) {
-      tableQuery += 'table_number = $1 FOR UPDATE';
-      tableParams.push(table_number);
+      tableQuery += 'LOWER(table_number) = LOWER($1) FOR UPDATE';
+      tableParams.push(table_number.toString().trim());
     } else {
       await client.query('ROLLBACK');
       return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลโต๊ะอาหาร' });
@@ -514,24 +514,27 @@ const customerCallStaff = async (req, res, io) => {
 const verifyTablePin = async (req, res) => {
   const { table_number, pin } = req.body;
   if (!table_number || !pin) {
-    return res.status(400).json({ success: false, error: 'กรุณากรอกรหัสโต๊ะให้ครบถ้วน' });
+    return res.status(400).json({ success: false, valid: false, error: 'กรุณากรอกรหัสโต๊ะให้ครบถ้วน' });
   }
   try {
-    const tableRes = await db.query('SELECT id, table_number, status, current_pin FROM restaurant_tables WHERE table_number = $1', [table_number]);
+    const tableRes = await db.query(
+      'SELECT id, table_number, status, current_pin FROM restaurant_tables WHERE LOWER(table_number) = LOWER($1)',
+      [table_number.toString().trim()]
+    );
     if (tableRes.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'ไม่พบโต๊ะอาหารนี้' });
+      return res.status(404).json({ success: false, valid: false, error: 'ไม่พบโต๊ะอาหารนี้' });
     }
     const table = tableRes.rows[0];
     if (table.status === 'available') {
-      return res.status(403).json({ success: false, error: 'โต๊ะยังไม่เปิดให้บริการ', code: 'TABLE_NOT_OPEN' });
+      return res.status(403).json({ success: false, valid: false, error: 'โต๊ะยังไม่เปิดให้บริการ', code: 'TABLE_NOT_OPEN' });
     }
     if (!table.current_pin || table.current_pin.toString().trim() === pin.toString().trim()) {
-      return res.json({ success: true, message: 'รหัสโต๊ะถูกต้อง' });
+      return res.json({ success: true, valid: true, message: 'รหัสโต๊ะถูกต้อง' });
     } else {
-      return res.status(403).json({ success: false, error: 'รหัสโต๊ะ (PIN) ไม่ถูกต้อง กรุณาสอบถามพนักงานที่ร้าน', code: 'INVALID_PIN' });
+      return res.status(403).json({ success: false, valid: false, error: 'รหัสโต๊ะ (PIN) ไม่ถูกต้อง กรุณาสอบถามพนักงานที่ร้าน', code: 'INVALID_PIN' });
     }
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, valid: false, error: err.message });
   }
 };
 
