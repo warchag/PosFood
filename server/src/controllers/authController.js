@@ -1,9 +1,50 @@
 const db = require('../config/db');
 
+// Helper to guarantee staff table and seed data exist
+const ensureStaffTableAndDefaults = async () => {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS staff (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(150) NOT NULL,
+        nickname VARCHAR(50),
+        role VARCHAR(30) DEFAULT 'waiter',
+        pin_code VARCHAR(10) NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        last_login_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
+      );
+    `);
+
+    // Ensure columns on orders & payments exist
+    await db.query(`
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS staff_id INT REFERENCES staff(id) ON DELETE SET NULL;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS staff_name VARCHAR(150);
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS cashier_id INT REFERENCES staff(id) ON DELETE SET NULL;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS cashier_name VARCHAR(150);
+    `);
+
+    // Check count
+    const countRes = await db.query('SELECT COUNT(*) FROM staff');
+    if (parseInt(countRes.rows[0].count, 10) === 0) {
+      console.log('🌱 Auto-seeding default staff members on Railway...');
+      await db.query(`
+        INSERT INTO staff (name, nickname, role, pin_code, is_active) VALUES
+        ('สมศักดิ์ ผู้จัดการร้าน', 'ผจก. สมศักดิ์', 'admin', '1111', TRUE),
+        ('วิภาดา แคชเชียร์หลัก', 'น้องวิ', 'cashier', '2222', TRUE),
+        ('สมชาย พนักงานบริการ', 'น้องชาย', 'waiter', '3333', TRUE),
+        ('สุดารัตน์ พนักงานบริการ', 'น้องดาว', 'waiter', '4444', TRUE);
+      `);
+    }
+  } catch (e) {
+    console.error('Error auto-seeding staff:', e.message);
+  }
+};
+
 // List active staff members (for login selection & management)
 const getStaffList = async (req, res) => {
   try {
-    const result = await db.query(
+    let result = await db.query(
       `SELECT id, name, nickname, role, is_active, created_at, last_login_at
        FROM staff
        WHERE is_active = TRUE
@@ -15,8 +56,34 @@ const getStaffList = async (req, res) => {
            ELSE 4 
          END, id ASC`
     );
+
+    if (result.rows.length === 0) {
+      await ensureStaffTableAndDefaults();
+      result = await db.query(
+        `SELECT id, name, nickname, role, is_active, created_at, last_login_at
+         FROM staff
+         WHERE is_active = TRUE
+         ORDER BY id ASC`
+      );
+    }
+
     res.json({ success: true, data: result.rows });
   } catch (err) {
+    // If relation does not exist, create and seed immediately
+    if (err.message && err.message.includes('does not exist')) {
+      await ensureStaffTableAndDefaults();
+      try {
+        const retryResult = await db.query(
+          `SELECT id, name, nickname, role, is_active, created_at, last_login_at
+           FROM staff
+           WHERE is_active = TRUE
+           ORDER BY id ASC`
+        );
+        return res.json({ success: true, data: retryResult.rows });
+      } catch (retryErr) {
+        return res.status(500).json({ success: false, error: retryErr.message });
+      }
+    }
     console.error('Error fetching staff:', err);
     res.status(500).json({ success: false, error: err.message });
   }

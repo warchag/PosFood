@@ -28,7 +28,8 @@ async function initializeDatabase() {
     } else {
       console.log('✅ Database already initialized.');
       // Ensure staff table and attribution columns exist
-      require('./migrateStaff');
+      const migrate = require('./migrateStaff');
+      await migrate();
     }
   } catch (err) {
     console.error('❌ Database initialization error:', err.message);

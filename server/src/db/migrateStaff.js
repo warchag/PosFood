@@ -52,8 +52,14 @@ async function migrate() {
     console.error('❌ Migration failed:', err);
   } finally {
     client.release();
-    process.exit(0);
+    if (require.main === module) {
+      process.exit(0);
+    }
   }
 }
 
-migrate();
+if (require.main === module) {
+  migrate();
+}
+
+module.exports = migrate;

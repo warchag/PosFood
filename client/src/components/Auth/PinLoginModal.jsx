@@ -257,9 +257,32 @@ export const PinLoginModal = ({ isOpen, onClose, requiredRole = null, onSuccess 
               1. เลือกผู้ใช้งาน:
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
-              {allStaff.map(staff => {
-                const isSelected = selectedStaff?.id === staff.id;
-                const hasPermission = !requiredRole || staff.role === 'admin' || staff.role === requiredRole;
+              {allStaff.length === 0 ? (
+                <div style={{ gridColumn: 'span 2', padding: '1rem', textAlign: 'center', background: 'rgba(255, 255, 255, 0.02)', border: '1px dashed var(--nv-hairline-strong)', borderRadius: 'var(--rounded-xs)' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--nv-on-dark-mute)', marginBottom: '8px' }}>
+                    กำลังเชื่อมต่อฐานข้อมูลพนักงาน...
+                  </div>
+                  <button 
+                    type="button" 
+                    onClick={() => fetchStaff()}
+                    style={{
+                      padding: '5px 12px',
+                      background: 'var(--nv-primary)',
+                      color: '#000000',
+                      border: 'none',
+                      borderRadius: 'var(--rounded-xs)',
+                      fontWeight: 700,
+                      fontSize: '0.75rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    โหลดรายชื่อพนักงานใหม่อีกครั้ง
+                  </button>
+                </div>
+              ) : (
+                allStaff.map(staff => {
+                  const isSelected = selectedStaff?.id === staff.id;
+                  const hasPermission = !requiredRole || staff.role === 'admin' || staff.role === requiredRole;
                 return (
                   <button
                     key={staff.id}
@@ -320,7 +343,7 @@ export const PinLoginModal = ({ isOpen, onClose, requiredRole = null, onSuccess 
                     </div>
                   </button>
                 );
-              })}
+              }))}
             </div>
           </div>
 
