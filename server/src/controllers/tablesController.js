@@ -21,6 +21,13 @@ const getTables = async (req, res) => {
         t.guest_count,
         t.current_order_id,
         t.current_pin,
+        t.current_reservation_id,
+        r.customer_name as reserved_customer_name,
+        r.customer_phone as reserved_customer_phone,
+        to_char(r.reservation_time, 'HH24:MI') as reserved_time,
+        to_char(r.reservation_date, 'YYYY-MM-DD') as reserved_date,
+        r.guest_count as reserved_guest_count,
+        r.special_requests as reserved_notes,
         t.notes,
         o.order_number,
         o.total_amount as current_total,
@@ -28,9 +35,13 @@ const getTables = async (req, res) => {
         COUNT(oi.id) as item_count
       FROM restaurant_tables t
       LEFT JOIN zones z ON t.zone_id = z.id
+      LEFT JOIN reservations r ON t.current_reservation_id = r.id
       LEFT JOIN orders o ON t.current_order_id = o.id AND o.status = 'active'
       LEFT JOIN order_items oi ON o.id = oi.order_id
-      GROUP BY t.id, z.name, z.display_order, o.order_number, o.total_amount, o.created_at, t.current_pin
+      GROUP BY 
+        t.id, z.name, z.display_order, o.order_number, o.total_amount, o.created_at, 
+        t.current_pin, t.current_reservation_id, r.customer_name, r.customer_phone, 
+        r.reservation_time, r.reservation_date, r.guest_count, r.special_requests
       ORDER BY z.display_order ASC, t.table_number ASC
     `;
     const result = await db.query(query);
@@ -213,10 +224,20 @@ const openTable = async (req, res, io) => {
 
     const newOrder = orderRes.rows[0];
 
-    // Update table status with current_pin
+    // If table had an active reservation, mark it as checked_in
+    if (table.current_reservation_id) {
+      await client.query(
+        `UPDATE reservations 
+         SET status = 'checked_in', checked_in_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $1`,
+        [table.current_reservation_id]
+      );
+    }
+
+    // Update table status with current_pin and clear current_reservation_id
     const updatedTableRes = await client.query(
       `UPDATE restaurant_tables
-       SET status = 'occupied', guest_count = $1, current_order_id = $2, current_pin = $3, notes = $4, updated_at = CURRENT_TIMESTAMP
+       SET status = 'occupied', guest_count = $1, current_order_id = $2, current_pin = $3, current_reservation_id = NULL, notes = $4, updated_at = CURRENT_TIMESTAMP
        WHERE id = $5
        RETURNING *`,
       [guest_count || 1, newOrder.id, sessionPin, notes || null, id]
@@ -402,10 +423,10 @@ const cancelTable = async (req, res, io) => {
       }
     }
 
-    // Reset table status to 'available' and clear current_pin
+    // Reset table status to 'available' and clear current_pin and current_reservation_id
     const updatedTableRes = await client.query(
       `UPDATE restaurant_tables
-       SET status = 'available', current_order_id = NULL, current_pin = NULL, guest_count = 0, notes = NULL, updated_at = CURRENT_TIMESTAMP
+       SET status = 'available', current_order_id = NULL, current_pin = NULL, current_reservation_id = NULL, guest_count = 0, notes = NULL, updated_at = CURRENT_TIMESTAMP
        WHERE id = $1
        RETURNING *`,
       [id]

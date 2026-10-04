@@ -531,6 +531,33 @@ export const FloorPlanView = ({ onSelectTable }) => {
                   </div>
                 )}
 
+                {/* Reservation Badge on Floor Board */}
+                {table.status === 'reserved' && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '-10px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: 'var(--status-reserved)',
+                    border: '1px solid #ffffff',
+                    color: '#ffffff',
+                    fontSize: '0.62rem',
+                    fontWeight: 800,
+                    borderRadius: '2px',
+                    padding: '1px 6px',
+                    whiteSpace: 'nowrap',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                    boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+                    zIndex: 26
+                  }}
+                  title={`จองโดย ${table.reserved_customer_name || 'ลูกค้า'} เวลา ${table.reserved_time || ''} น.`}
+                  >
+                    <span>จอง {table.reserved_time ? `${table.reserved_time} น.` : ''}</span>
+                  </div>
+                )}
+
                 {/* Delete button in edit mode */}
                 {isEditMode && table.status === 'available' && (
                   <button

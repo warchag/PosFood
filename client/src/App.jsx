@@ -8,6 +8,7 @@ import { ReceiptModal } from './components/Billing/ReceiptModal';
 import { KitchenDisplay } from './components/Kitchen/KitchenDisplay';
 import { DailyReport } from './components/Reports/DailyReport';
 import { MenuAdminView } from './components/Admin/MenuAdminView';
+import { ReservationView } from './components/Reservation/ReservationView';
 import { SystemStatusFooter } from './components/Common/SystemStatusFooter';
 import { PinLoginModal } from './components/Auth/PinLoginModal';
 import { CustomerOrderView } from './components/Customer/CustomerOrderView';
@@ -19,6 +20,7 @@ import {
   ChefHat, 
   BarChart3, 
   SlidersHorizontal,
+  Calendar,
   Sun,
   Moon,
   Activity,
@@ -38,11 +40,12 @@ const MainAppContent = () => {
     selectedTable, 
     setSelectedTable, 
     tables,
+    reservations,
     currentStaff,
     logoutStaff
   } = usePos();
 
-  const [activeTab, setActiveTab] = useState('floor'); // 'floor', 'menu', 'kitchen', 'report', 'admin'
+  const [activeTab, setActiveTab] = useState('floor'); // 'floor', 'menu', 'kitchen', 'reservation', 'report', 'admin'
   const [modalTable, setModalTable] = useState(null);
   const [checkoutOrder, setCheckoutOrder] = useState(null);
   const [receiptOrderId, setReceiptOrderId] = useState(null);
@@ -50,6 +53,9 @@ const MainAppContent = () => {
   const [requiredRoleForAction, setRequiredRoleForAction] = useState(null);
   const [pendingTabAfterAuth, setPendingTabAfterAuth] = useState(null);
   const [staffAlert, setStaffAlert] = useState(null);
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const pendingReservationCount = (reservations || []).filter(r => r.reservation_date === todayStr && r.status === 'confirmed').length;
   
   // Real-time listener for customer QR orders and staff calls
   useEffect(() => {
@@ -169,6 +175,9 @@ const MainAppContent = () => {
         <div className="utility-bar-right">
           <span>OCCUPANCY: <strong>{occupiedCount} / {tables.length}</strong> TABLES IN USE</span>
           <span>AVAILABLE: <strong>{availableCount}</strong></span>
+          {pendingReservationCount > 0 && (
+            <span style={{ color: '#93c5fd' }}>RESERVED: <strong>{pendingReservationCount} TODAY</strong></span>
+          )}
           <span>TH-TH • 24H POS CLOUD</span>
         </div>
       </div>
@@ -204,6 +213,28 @@ const MainAppContent = () => {
           >
             <ChefHat size={15} />
             คิวครัว (KDS)
+          </button>
+
+          <button 
+            className={`nav-tab-btn ${activeTab === 'reservation' ? 'active' : ''}`}
+            onClick={() => handleTabChange('reservation')}
+            style={{ position: 'relative' }}
+          >
+            <Calendar size={15} />
+            การจองโต๊ะ
+            {pendingReservationCount > 0 && (
+              <span style={{
+                marginLeft: '4px',
+                padding: '1px 6px',
+                fontSize: '0.68rem',
+                fontWeight: 800,
+                background: 'var(--status-reserved)',
+                color: '#ffffff',
+                borderRadius: 'var(--rounded-xs)'
+              }}>
+                {pendingReservationCount}
+              </span>
+            )}
           </button>
 
           <button 
@@ -389,6 +420,20 @@ const MainAppContent = () => {
 
         {activeTab === 'kitchen' && (
           <KitchenDisplay />
+        )}
+
+        {activeTab === 'reservation' && (
+          <ReservationView 
+            onGoToTable={(table) => {
+              setSelectedTable(table);
+              setActiveTab('floor');
+              setModalTable(table);
+            }}
+            onGoToOrder={(table) => {
+              setSelectedTable(table);
+              setActiveTab('menu');
+            }}
+          />
         )}
 
         {activeTab === 'report' && (

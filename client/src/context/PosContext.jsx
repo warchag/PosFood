@@ -26,6 +26,7 @@ export const PosProvider = ({ children }) => {
     }
   });
   const [allStaff, setAllStaff] = useState([]);
+  const [reservations, setReservations] = useState([]);
 
   // Fetch tables and zones
   const fetchTables = useCallback(async () => {
@@ -87,6 +88,117 @@ export const PosProvider = ({ children }) => {
       console.error('Failed to fetch staff list:', err);
     }
   }, []);
+
+  // Fetch reservations
+  const fetchReservations = useCallback(async (filters = {}) => {
+    try {
+      const params = new URLSearchParams();
+      if (filters.date) params.append('date', filters.date);
+      if (filters.status) params.append('status', filters.status);
+      if (filters.search) params.append('search', filters.search);
+      const url = `/api/reservations${params.toString() ? `?${params.toString()}` : ''}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (json.success) {
+        setReservations(json.data);
+        return json.data;
+      }
+      return [];
+    } catch (err) {
+      console.error('Failed to fetch reservations:', err);
+      return [];
+    }
+  }, []);
+
+  // Create new reservation
+  const createReservation = async (reservationData) => {
+    try {
+      const res = await fetch('/api/reservations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...reservationData,
+          staff_id: currentStaff?.id,
+          staff_name: currentStaff?.nickname || currentStaff?.name || 'พนักงาน'
+        })
+      });
+      const json = await res.json();
+      if (json.success) {
+        await fetchReservations();
+        await fetchTables();
+        return { success: true, data: json.data };
+      }
+      return { success: false, error: json.error || 'บันทึกการจองล้มเหลว' };
+    } catch (err) {
+      return { success: false, error: 'เชื่อมต่อเซิร์ฟเวอร์ล้มเหลว' };
+    }
+  };
+
+  // Update reservation
+  const updateReservation = async (id, updateData) => {
+    try {
+      const res = await fetch(`/api/reservations/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData)
+      });
+      const json = await res.json();
+      if (json.success) {
+        await fetchReservations();
+        await fetchTables();
+        return { success: true, data: json.data };
+      }
+      return { success: false, error: json.error || 'อัปเดตการจองล้มเหลว' };
+    } catch (err) {
+      return { success: false, error: 'เชื่อมต่อเซิร์ฟเวอร์ล้มเหลว' };
+    }
+  };
+
+  // Check in customer from reservation
+  const checkInReservation = async (id, guestCount, notes) => {
+    try {
+      const res = await fetch(`/api/reservations/${id}/check-in`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          guest_count: guestCount,
+          notes,
+          staff_id: currentStaff?.id,
+          staff_name: currentStaff?.nickname || currentStaff?.name || 'พนักงาน'
+        })
+      });
+      const json = await res.json();
+      if (json.success) {
+        await fetchReservations();
+        await fetchTables();
+        await fetchZones();
+        return { success: true, data: json.data };
+      }
+      return { success: false, error: json.error || 'เช็คอินไม่สำเร็จ' };
+    } catch (err) {
+      return { success: false, error: 'เชื่อมต่อเซิร์ฟเวอร์ล้มเหลว' };
+    }
+  };
+
+  // Cancel reservation
+  const cancelReservation = async (id, reason) => {
+    try {
+      const res = await fetch(`/api/reservations/${id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      const json = await res.json();
+      if (json.success) {
+        await fetchReservations();
+        await fetchTables();
+        return { success: true };
+      }
+      return { success: false, error: json.error || 'ยกเลิกการจองล้มเหลว' };
+    } catch (err) {
+      return { success: false, error: 'เชื่อมต่อเซิร์ฟเวอร์ล้มเหลว' };
+    }
+  };
 
   // Login with PIN
   const loginWithPin = async (pinCode, staffId = null) => {
@@ -180,6 +292,24 @@ export const PosProvider = ({ children }) => {
       fetchZones();
     });
 
+    s.on('reservation:created', () => {
+      fetchReservations();
+      fetchTables();
+    });
+    s.on('reservation:updated', () => {
+      fetchReservations();
+      fetchTables();
+    });
+    s.on('reservation:checked_in', () => {
+      fetchReservations();
+      fetchTables();
+      fetchZones();
+    });
+    s.on('reservation:cancelled', () => {
+      fetchReservations();
+      fetchTables();
+    });
+
     s.on('menu:created', () => fetchMenu());
     s.on('menu:updated', () => fetchMenu());
     s.on('menu:deleted', () => fetchMenu());
@@ -192,14 +322,15 @@ export const PosProvider = ({ children }) => {
     return () => {
       s.disconnect();
     };
-  }, [selectedTable, fetchTables, fetchZones, fetchMenu, fetchOrderForTable]);
+  }, [selectedTable, fetchTables, fetchZones, fetchMenu, fetchOrderForTable, fetchReservations]);
 
   useEffect(() => {
     fetchTables();
     fetchZones();
     fetchMenu();
     fetchStaff();
-  }, [fetchTables, fetchZones, fetchMenu, fetchStaff]);
+    fetchReservations();
+  }, [fetchTables, fetchZones, fetchMenu, fetchStaff, fetchReservations]);
 
   // Open a table
   const openTable = async (tableId, guestCount = 2, notes = '') => {
@@ -620,6 +751,12 @@ export const PosProvider = ({ children }) => {
         deleteMenuItem,
         toggleAvailability,
         socket,
+        reservations,
+        fetchReservations,
+        createReservation,
+        updateReservation,
+        checkInReservation,
+        cancelReservation,
         currentStaff,
         setCurrentStaff,
         allStaff,

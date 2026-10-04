@@ -30,6 +30,9 @@ async function initializeDatabase() {
       // Ensure staff table and attribution columns exist
       const migrate = require('./migrateStaff');
       await migrate();
+      // Ensure reservations table and table columns exist
+      const migrateReservations = require('./migrateReservations');
+      await migrateReservations();
       // Ensure current_pin and table_pin columns exist
       await db.query('ALTER TABLE restaurant_tables ADD COLUMN IF NOT EXISTS current_pin VARCHAR(10)');
       await db.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS table_pin VARCHAR(10)');

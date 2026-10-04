@@ -15,7 +15,9 @@ import {
   ChevronRight,
   UserX,
   QrCode,
-  Key
+  Key,
+  Calendar,
+  Phone
 } from 'lucide-react';
 
 export const TableActionModal = ({ 
@@ -29,6 +31,9 @@ export const TableActionModal = ({
   const { 
     openTable, 
     cancelTable,
+    createReservation,
+    checkInReservation,
+    cancelReservation,
     fetchOrderForTable, 
     transferTable, 
     tables,
@@ -42,6 +47,16 @@ export const TableActionModal = ({
   const [isTransferring, setIsTransferring] = useState(false);
   const [targetTableId, setTargetTableId] = useState('');
   const [cancelling, setCancelling] = useState(false);
+
+  // Reservation mode states for available table
+  const [availableMode, setAvailableMode] = useState('open'); // 'open' | 'reserve'
+  const [reserveName, setReserveName] = useState('');
+  const [reservePhone, setReservePhone] = useState('');
+  const [reserveDate, setReserveDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [reserveTime, setReserveTime] = useState('18:30');
+  const [reserveNotes, setReserveNotes] = useState('');
+  const [reserving, setReserving] = useState(false);
+  const [checkingIn, setCheckingIn] = useState(false);
 
   const loadOrder = useCallback(async () => {
     if (!table?.id) return;
@@ -111,6 +126,59 @@ export const TableActionModal = ({
     }
   };
 
+  const handleCreateReservation = async (e) => {
+    if (e) e.preventDefault();
+    if (!reserveName.trim() || !reservePhone.trim()) {
+      alert('กรุณากรอกชื่อลูกค้าและเบอร์โทรศัพท์');
+      return;
+    }
+    setReserving(true);
+    const result = await createReservation({
+      table_id: table.id,
+      customer_name: reserveName,
+      customer_phone: reservePhone,
+      guest_count: guestCount,
+      reservation_date: reserveDate,
+      reservation_time: reserveTime,
+      special_requests: reserveNotes
+    });
+    setReserving(false);
+    if (result.success) {
+      onClose();
+    } else {
+      alert(result.error || 'จองโต๊ะไม่สำเร็จ');
+    }
+  };
+
+  const handleCheckInReserved = async () => {
+    if (!window.confirm(`ยืนยันการเช็คอินลูกค้าเข้าโต๊ะ ${table.table_number} หรือไม่?`)) return;
+    setCheckingIn(true);
+    let result;
+    if (table.current_reservation_id) {
+      result = await checkInReservation(table.current_reservation_id, table.reserved_guest_count || guestCount, table.reserved_notes || notes);
+    } else {
+      const success = await openTable(table.id, table.reserved_guest_count || guestCount, table.reserved_notes || notes);
+      result = { success };
+    }
+    setCheckingIn(false);
+    if (result.success) {
+      onGoToOrder(table);
+    } else {
+      alert(result.error || 'เช็คอินไม่สำเร็จ');
+    }
+  };
+
+  const handleCancelReservation = async () => {
+    const reason = window.prompt(`ระบุเหตุผลในการยกเลิกการจองโต๊ะ ${table.table_number}:`, 'ลูกค้ายกเลิก/โทรแจ้งเลื่อน');
+    if (reason === null) return;
+    if (table.current_reservation_id) {
+      await cancelReservation(table.current_reservation_id, reason);
+    } else {
+      await cancelTable(table.id, reason);
+    }
+    onClose();
+  };
+
   const availableTargetTables = tables.filter(t => t.id !== table.id && t.status === 'available');
 
   const getStatusBadge = () => {
@@ -123,6 +191,8 @@ export const TableActionModal = ({
         return <span className="stat-chip" style={{ background: 'var(--status-ordered-bg)', color: 'var(--status-ordered-text)', border: '1px solid var(--status-ordered-border)' }}>🟡 รออาหาร</span>;
       case 'billing':
         return <span className="stat-chip" style={{ background: 'var(--status-billing-bg)', color: 'var(--status-billing-text)', border: '1px solid var(--status-billing-border)' }}>🟣 รอเช็คบิล</span>;
+      case 'reserved':
+        return <span className="stat-chip" style={{ background: 'var(--status-reserved-bg)', color: 'var(--status-reserved-text)', border: '1px solid var(--status-reserved-border)' }}>🔷 จองแล้ว</span>;
       default:
         return <span className="stat-chip">{table.status}</span>;
     }
@@ -173,58 +243,271 @@ export const TableActionModal = ({
 
         {/* Body */}
         <div className="modal-body">
-          {table.status === 'available' ? (
-            /* Open Table Form */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-                  จำนวนลูกค้า (ท่าน)
-                </label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {[1, 2, 4, 6, 8].map(num => (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => setGuestCount(num)}
-                      style={{
-                        flex: 1,
-                        padding: '0.65rem 0',
-                        borderRadius: 'var(--radius-sm)',
-                        border: guestCount === num ? '2px solid var(--apple-blue)' : '1px solid var(--border-subtle)',
-                        background: guestCount === num ? 'var(--apple-blue-tint)' : 'var(--bg-canvas)',
-                        color: guestCount === num ? 'var(--apple-blue)' : 'var(--text-main)',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        transition: 'var(--transition-fast)'
-                      }}
-                    >
-                      {num}
-                    </button>
-                  ))}
+          {table.status === 'reserved' ? (
+            /* Reserved Table Details View */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{
+                background: 'var(--status-reserved-bg)',
+                border: '1.5px solid var(--status-reserved-border)',
+                borderRadius: 'var(--rounded-sm)',
+                padding: '1.15rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.85rem'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Calendar size={18} color="var(--nv-link-blue)" />
+                    <span style={{ fontWeight: 800, fontSize: '0.96rem', color: 'var(--text-main)' }}>
+                      ข้อมูลการจองโต๊ะ (RESERVATION)
+                    </span>
+                  </div>
+                  <span style={{
+                    padding: '2px 8px',
+                    background: 'var(--status-reserved-border)',
+                    color: '#ffffff',
+                    borderRadius: 'var(--rounded-xs)',
+                    fontSize: '0.74rem',
+                    fontWeight: 800
+                  }}>
+                    เวลานัด: {table.reserved_time || '-'} น.
+                  </span>
                 </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.86rem' }}>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>ชื่อลูกค้าผู้จอง:</div>
+                    <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>
+                      {table.reserved_customer_name || 'ลูกค้าที่จอง'}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>เบอร์ติดต่อ:</div>
+                    <div style={{ fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Phone size={12} />
+                      <a href={`tel:${table.reserved_customer_phone}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+                        {table.reserved_customer_phone || '-'}
+                      </a>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>วันที่จอง:</div>
+                    <div style={{ fontWeight: 600 }}>{table.reserved_date || 'วันนี้'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>จำนวนแขก:</div>
+                    <div style={{ fontWeight: 600 }}>{table.reserved_guest_count || table.capacity} ท่าน</div>
+                  </div>
+                </div>
+
+                {table.reserved_notes && (
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.85)',
+                    padding: '8px 10px',
+                    borderRadius: 'var(--rounded-xs)',
+                    border: '1px solid var(--border-subtle)',
+                    fontSize: '0.82rem'
+                  }}>
+                    <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>โน้ตพิเศษ: </span>
+                    <span>{table.reserved_notes}</span>
+                  </div>
+                )}
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-                  หมายเหตุเพิ่มเติม / ความต้องการพิเศษ
-                </label>
-                <input
-                  type="text"
-                  placeholder="เช่น ขอเก้าอี้เด็ก, แอร์ตก, ลูกค้าประจำ..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
+              <div style={{ background: 'var(--nv-surface-soft)', padding: '0.75rem 1rem', borderRadius: 'var(--rounded-xs)', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                💡 เมื่อลูกค้ามาถึงร้าน กดปุ่ม <strong>"เช็คอินลูกค้าเข้าโต๊ะ"</strong> ด้านล่างเพื่อเปิดโต๊ะและเริ่มสั่งอาหารได้ทันที
+              </div>
+            </div>
+          ) : table.status === 'available' ? (
+            /* Available Table: Mode Toggle (Open Now vs Reserve Table) */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Mode Tabs */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', background: 'var(--nv-surface-soft)', padding: '4px', borderRadius: 'var(--rounded-xs)' }}>
+                <button
+                  type="button"
+                  onClick={() => setAvailableMode('open')}
                   style={{
-                    width: '100%',
-                    padding: '0.75rem 1rem'
+                    padding: '6px 0',
+                    fontSize: '0.84rem',
+                    fontWeight: availableMode === 'open' ? 700 : 500,
+                    background: availableMode === 'open' ? 'var(--nv-primary)' : 'transparent',
+                    color: availableMode === 'open' ? '#000000' : 'var(--text-secondary)',
+                    border: 'none',
+                    borderRadius: 'var(--rounded-xs)',
+                    cursor: 'pointer'
                   }}
-                />
+                >
+                  🟢 เปิดโต๊ะทันที (Walk-in)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAvailableMode('reserve')}
+                  style={{
+                    padding: '6px 0',
+                    fontSize: '0.84rem',
+                    fontWeight: availableMode === 'reserve' ? 700 : 500,
+                    background: availableMode === 'reserve' ? 'var(--nv-primary)' : 'transparent',
+                    color: availableMode === 'reserve' ? '#000000' : 'var(--text-secondary)',
+                    border: 'none',
+                    borderRadius: 'var(--rounded-xs)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🔷 จองโต๊ะนี้ (Reserve)
+                </button>
               </div>
 
-              <div style={{ background: 'var(--status-available-bg)', border: '1px dashed var(--status-available-border)', borderRadius: 'var(--radius-md)', padding: '1rem' }}>
-                <p style={{ fontSize: '0.84rem', color: 'var(--status-available-text)', lineHeight: 1.5 }}>
-                  💡 เมื่อกด "เปิดโต๊ะและสั่งอาหาร" ระบบจะเปลี่ยนสถานะโต๊ะบนผัง Top View เป็น "มีลูกค้า" และนำทางไปหน้าเมนูอาหารทันที
-                </p>
-              </div>
+              {availableMode === 'open' ? (
+                /* Open Table Form */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+                      จำนวนลูกค้า (ท่าน)
+                    </label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      {[1, 2, 4, 6, 8].map(num => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setGuestCount(num)}
+                          style={{
+                            flex: 1,
+                            padding: '0.65rem 0',
+                            borderRadius: 'var(--radius-sm)',
+                            border: guestCount === num ? '2px solid var(--apple-blue)' : '1px solid var(--border-subtle)',
+                            background: guestCount === num ? 'var(--apple-blue-tint)' : 'var(--bg-canvas)',
+                            color: guestCount === num ? 'var(--apple-blue)' : 'var(--text-main)',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'var(--transition-fast)'
+                          }}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+                      หมายเหตุเพิ่มเติม / ความต้องการพิเศษ
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="เช่น ขอเก้าอี้เด็ก, แอร์ตก, ลูกค้าประจำ..."
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem'
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ background: 'var(--status-available-bg)', border: '1px dashed var(--status-available-border)', borderRadius: 'var(--radius-md)', padding: '0.85rem' }}>
+                    <p style={{ fontSize: '0.82rem', color: 'var(--status-available-text)', lineHeight: 1.5, margin: 0 }}>
+                      💡 เมื่อกด "เปิดโต๊ะและสั่งอาหาร" ระบบจะเปลี่ยนสถานะโต๊ะบนผัง Top View เป็น "มีลูกค้า" และนำทางไปหน้าเมนูอาหารทันที
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* Reserve Table Form */
+                <form onSubmit={handleCreateReservation} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                        ชื่อผู้จอง <span style={{ color: 'var(--nv-error)' }}>*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="เช่น คุณณภัทร"
+                        value={reserveName}
+                        onChange={(e) => setReserveName(e.target.value)}
+                        style={{ width: '100%', padding: '0.55rem 0.75rem', fontSize: '0.86rem' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                        เบอร์โทรศัพท์ <span style={{ color: 'var(--nv-error)' }}>*</span>
+                      </label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="เช่น 089-123-4567"
+                        value={reservePhone}
+                        onChange={(e) => setReservePhone(e.target.value)}
+                        style={{ width: '100%', padding: '0.55rem 0.75rem', fontSize: '0.86rem' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                        วันที่จอง
+                      </label>
+                      <input
+                        type="date"
+                        value={reserveDate}
+                        onChange={(e) => setReserveDate(e.target.value)}
+                        style={{ width: '100%', padding: '0.55rem 0.75rem', fontSize: '0.86rem' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                        เวลานัด
+                      </label>
+                      <input
+                        type="time"
+                        value={reserveTime}
+                        onChange={(e) => setReserveTime(e.target.value)}
+                        style={{ width: '100%', padding: '0.55rem 0.75rem', fontSize: '0.86rem' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                      จำนวนแขก (ท่าน)
+                    </label>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      {[1, 2, 4, 6, 8].map(num => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setGuestCount(num)}
+                          style={{
+                            flex: 1,
+                            padding: '4px 0',
+                            fontSize: '0.82rem',
+                            borderRadius: 'var(--rounded-xs)',
+                            border: guestCount === num ? '2px solid var(--nv-primary)' : '1px solid var(--border-subtle)',
+                            background: guestCount === num ? 'var(--status-available-bg)' : 'var(--bg-canvas)',
+                            fontWeight: guestCount === num ? 700 : 500,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                      ความต้องการพิเศษ / หมายเหตุ
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="เช่น ขอมุมสงบ, วันเกิด, มีเด็กเล็ก"
+                      value={reserveNotes}
+                      onChange={(e) => setReserveNotes(e.target.value)}
+                      style={{ width: '100%', padding: '0.55rem 0.75rem', fontSize: '0.86rem' }}
+                    />
+                  </div>
+                </form>
+              )}
             </div>
           ) : (
             /* Occupied Table Details & Order Summary */
@@ -378,28 +661,72 @@ export const TableActionModal = ({
 
         {/* Footer Actions */}
         <div className="modal-footer" style={{ padding: '0.85rem 1.25rem' }}>
-          {table.status === 'available' ? (
+          {table.status === 'reserved' ? (
             <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
               <button 
                 type="button"
                 className="btn btn-secondary" 
-                onClick={() => setShowQrModal(true)}
-                title="สร้าง QR Code ให้ลูกค้าสแกนสั่งอาหารเอง"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                onClick={handleCancelReservation}
+                style={{ color: 'var(--nv-error)', borderColor: 'rgba(229, 32, 32, 0.4)', fontSize: '0.82rem', height: '36px' }}
+                title="ยกเลิกการจองโต๊ะนี้ และคืนสถานะเป็นโต๊ะว่าง"
               >
-                <QrCode size={15} />
-                QR สั่งอาหาร
+                <X size={15} />
+                ยกเลิกการจอง
               </button>
+
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button className="btn btn-secondary" onClick={onClose}>
-                  ยกเลิก
+                <button className="btn btn-secondary" onClick={onClose} style={{ height: '36px', fontSize: '0.82rem' }}>
+                  ปิด
                 </button>
-                <button className="btn btn-primary" onClick={handleOpenTable}>
-                  <Utensils size={16} />
-                  เปิดโต๊ะและสั่งอาหาร
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleCheckInReserved}
+                  disabled={checkingIn}
+                  style={{ height: '36px', fontSize: '0.82rem' }}
+                >
+                  <Check size={16} />
+                  {checkingIn ? 'กำลังเช็คอิน...' : 'เช็คอินลูกค้าเข้าโต๊ะ'}
                 </button>
               </div>
             </div>
+          ) : table.status === 'available' ? (
+            availableMode === 'open' ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                <button 
+                  type="button"
+                  className="btn btn-secondary" 
+                  onClick={() => setShowQrModal(true)}
+                  title="สร้าง QR Code ให้ลูกค้าสแกนสั่งอาหารเอง"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <QrCode size={15} />
+                  QR สั่งอาหาร
+                </button>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button className="btn btn-secondary" onClick={onClose}>
+                    ยกเลิก
+                  </button>
+                  <button className="btn btn-primary" onClick={handleOpenTable}>
+                    <Utensils size={16} />
+                    เปิดโต๊ะและสั่งอาหาร
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%', alignItems: 'center', gap: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={onClose}>
+                  ยกเลิก
+                </button>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleCreateReservation}
+                  disabled={reserving}
+                >
+                  <Calendar size={16} />
+                  {reserving ? 'กำลังบันทึก...' : 'ยืนยันการจองโต๊ะนี้'}
+                </button>
+              </div>
+            )
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', width: '100%' }}>
               {/* Row 1: Table Operations Bar (Cancel table, Transfer, Print bill, QR code, Close) */}

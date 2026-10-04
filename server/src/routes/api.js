@@ -7,9 +7,17 @@ const ordersController = require('../controllers/ordersController');
 const billingController = require('../controllers/billingController');
 const settingsController = require('../controllers/settingsController');
 const authController = require('../controllers/authController');
+const reservationsController = require('../controllers/reservationsController');
 const db = require('../config/db');
 
 module.exports = (io) => {
+  // --- Reservations Routes ---
+  router.get('/reservations', reservationsController.getReservations);
+  router.get('/reservations/:id', reservationsController.getReservationById);
+  router.post('/reservations', (req, res) => reservationsController.createReservation(req, res, io));
+  router.put('/reservations/:id', (req, res) => reservationsController.updateReservation(req, res, io));
+  router.post('/reservations/:id/check-in', (req, res) => reservationsController.checkInReservation(req, res, io));
+  router.post('/reservations/:id/cancel', (req, res) => reservationsController.cancelReservation(req, res, io));
   // --- Auth & Staff Management Routes ---
   router.get('/staff', authController.getStaffList);
   router.post('/auth/login-pin', (req, res) => authController.loginWithPin(req, res, io));

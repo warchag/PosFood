@@ -47,6 +47,8 @@ CREATE TABLE restaurant_tables (
     status VARCHAR(30) DEFAULT 'available', -- 'available', 'occupied', 'ordered', 'billing', 'reserved'
     guest_count INT DEFAULT 0,
     current_order_id INT DEFAULT NULL,
+    current_pin VARCHAR(10) DEFAULT NULL,
+    current_reservation_id INT DEFAULT NULL,
     notes TEXT,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -136,6 +138,31 @@ CREATE TABLE restaurant_settings (
     setting_value TEXT NOT NULL
 );
 
+-- Reservations
+CREATE TABLE reservations (
+    id SERIAL PRIMARY KEY,
+    table_id INT REFERENCES restaurant_tables(id) ON DELETE SET NULL,
+    customer_name VARCHAR(150) NOT NULL,
+    customer_phone VARCHAR(30) NOT NULL,
+    guest_count INT NOT NULL DEFAULT 2,
+    reservation_date DATE NOT NULL,
+    reservation_time TIME NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'confirmed', -- 'confirmed', 'checked_in', 'cancelled', 'no_show'
+    special_requests TEXT,
+    staff_id INT REFERENCES staff(id) ON DELETE SET NULL,
+    staff_name VARCHAR(100),
+    checked_in_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Foreign key link back from restaurant_tables to reservations
+ALTER TABLE restaurant_tables 
+    ADD CONSTRAINT fk_tables_current_reservation 
+    FOREIGN KEY (current_reservation_id) 
+    REFERENCES reservations(id) 
+    ON DELETE SET NULL;
+
 -- Indexes for performance
 CREATE INDEX idx_tables_zone ON restaurant_tables(zone_id);
 CREATE INDEX idx_tables_status ON restaurant_tables(status);
@@ -143,3 +170,6 @@ CREATE INDEX idx_menu_category ON menu_items(category_id);
 CREATE INDEX idx_orders_status ON orders(status);
 CREATE INDEX idx_order_items_order ON order_items(order_id);
 CREATE INDEX idx_payments_order ON payments(order_id);
+CREATE INDEX idx_reservations_date ON reservations(reservation_date);
+CREATE INDEX idx_reservations_status ON reservations(status);
+CREATE INDEX idx_reservations_table ON reservations(table_id);
