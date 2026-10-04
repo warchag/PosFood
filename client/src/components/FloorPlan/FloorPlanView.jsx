@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { usePos } from '../../context/PosContext';
+import { BatchQrPrintModal } from './BatchQrPrintModal';
 import { 
   Users, 
   Move, 
@@ -19,10 +20,12 @@ import {
   Settings,
   X,
   Trash2,
-  Edit3
+  Edit3,
+  QrCode
 } from 'lucide-react';
 
 export const FloorPlanView = ({ onSelectTable }) => {
+  const [batchQrModalOpen, setBatchQrModalOpen] = useState(false);
   const { 
     tables, 
     zones, 
@@ -321,6 +324,17 @@ export const FloorPlanView = ({ onSelectTable }) => {
           >
             <Plus size={16} />
             + เพิ่มโต๊ะในโซนนี้
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setBatchQrModalOpen(true)}
+            title="พิมพ์ป้าย QR Code สั่งอาหารของทุกโต๊ะในร้าน"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <QrCode size={15} />
+            พิมพ์ QR ทุกโต๊ะ
           </button>
 
           {isEditMode ? (
@@ -798,6 +812,11 @@ export const FloorPlanView = ({ onSelectTable }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Batch QR Print Modal */}
+      {batchQrModalOpen && (
+        <BatchQrPrintModal onClose={() => setBatchQrModalOpen(false)} />
       )}
     </div>
   );
