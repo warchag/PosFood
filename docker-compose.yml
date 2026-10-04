@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: restaurant_pos_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: restaurant_pos
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./server/sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./server/sql/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
+
+  adminer:
+    image: adminer:latest
+    container_name: restaurant_pos_adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
