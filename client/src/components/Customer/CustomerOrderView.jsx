@@ -18,7 +18,9 @@ import {
   Coffee,
   HelpCircle,
   CreditCard,
-  Lock
+  Lock,
+  Key,
+  Delete
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { io } from 'socket.io-client';
@@ -41,6 +43,29 @@ export const CustomerOrderView = ({ tableNumber }) => {
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [callStaffModalOpen, setCallStaffModalOpen] = useState(false);
   const [callSuccessMsg, setCallSuccessMsg] = useState('');
+
+  // Table PIN Security State
+  const [tablePin, setTablePin] = useState(() => {
+    try {
+      return sessionStorage.getItem(`pos_pin_${tableNumber}`) || '';
+    } catch (e) {
+      return '';
+    }
+  });
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [isVerifyingPin, setIsVerifyingPin] = useState(false);
+
+  // Clear saved PIN if table becomes closed or tableNumber changes
+  useEffect(() => {
+    if (orderStatusData && !orderStatusData.is_table_open) {
+      setTablePin('');
+      try {
+        sessionStorage.removeItem(`pos_pin_${tableNumber}`);
+      } catch (e) {}
+    }
+  }, [orderStatusData?.is_table_open, tableNumber]);
 
   // 1. Fetch Categories & Menu
   useEffect(() => {
@@ -143,8 +168,48 @@ export const CustomerOrderView = ({ tableNumber }) => {
     setItemNote('');
   };
 
+  // Verify PIN before ordering
+  const handleVerifyPinSubmit = async (pinToVerify = pinInput) => {
+    const cleanPin = (pinToVerify || '').trim();
+    if (!cleanPin || cleanPin.length !== 4) {
+      setPinError('กรุณากรอกรหัส PIN ให้ครบ 4 หลัก');
+      return;
+    }
+    setPinError('');
+    setIsVerifyingPin(true);
+    try {
+      const res = await fetch('/api/customer/verify-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          table_number: tableNumber,
+          pin: cleanPin
+        })
+      });
+      const data = await res.json();
+      setIsVerifyingPin(false);
+      if (data.success && data.valid) {
+        setTablePin(cleanPin);
+        try {
+          sessionStorage.setItem(`pos_pin_${tableNumber}`, cleanPin);
+        } catch (e) {}
+        setShowPinModal(false);
+        setPinInput('');
+        // Automatically submit order after successful verification if cart has items
+        if (cart.length > 0) {
+          executeSubmitOrder(cleanPin);
+        }
+      } else {
+        setPinError(data.error || 'รหัส PIN ไม่ถูกต้อง กรุณาสอบถามพนักงานประจำโต๊ะ');
+      }
+    } catch (err) {
+      setIsVerifyingPin(false);
+      setPinError('ไม่สามารถตรวจสอบรหัสได้ กรุณาลองใหม่อีกครั้ง');
+    }
+  };
+
   // Submit Order to Kitchen
-  const handleSubmitOrder = async () => {
+  const handleSubmitOrder = () => {
     if (cart.length === 0 || isSubmitting) return;
 
     if (orderStatusData && !orderStatusData.is_table_open) {
@@ -152,6 +217,18 @@ export const CustomerOrderView = ({ tableNumber }) => {
       return;
     }
 
+    // Require PIN if table has active session PIN and customer hasn't entered it
+    if (orderStatusData?.requires_pin && !tablePin) {
+      setPinError('');
+      setPinInput('');
+      setShowPinModal(true);
+      return;
+    }
+
+    executeSubmitOrder(tablePin);
+  };
+
+  const executeSubmitOrder = async (pinToSend = tablePin) => {
     setIsSubmitting(true);
     try {
       const res = await fetch('/api/customer/order', {
@@ -159,6 +236,7 @@ export const CustomerOrderView = ({ tableNumber }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           table_number: tableNumber,
+          pin: pinToSend,
           items: cart.map(item => ({
             id: item.id,
             menu_item_id: item.id,
@@ -187,7 +265,16 @@ export const CustomerOrderView = ({ tableNumber }) => {
         fetchOrderStatus();
         setIsStatusModalOpen(true);
       } else {
-        if (json.code === 'TABLE_NOT_OPEN' || json.error === 'TABLE_NOT_OPEN') {
+        if (json.code === 'INVALID_PIN') {
+          // Clear invalid pin and prompt user again
+          setTablePin('');
+          try {
+            sessionStorage.removeItem(`pos_pin_${tableNumber}`);
+          } catch (e) {}
+          setPinError(json.error || 'รหัส PIN ไม่ถูกต้องหรือถูกเปลี่ยน กรุณากรอกรหัสใหม่อีกครั้ง');
+          setPinInput('');
+          setShowPinModal(true);
+        } else if (json.code === 'TABLE_NOT_OPEN' || json.error === 'TABLE_NOT_OPEN') {
           alert('🔒 ' + (json.error || json.message || 'โต๊ะยังไม่เปิดให้บริการ กรุณาแจ้งพนักงานเพื่อเปิดโต๊ะ'));
           fetchOrderStatus();
         } else {
@@ -878,35 +965,77 @@ export const CustomerOrderView = ({ tableNumber }) => {
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={handleSubmitOrder}
-                  disabled={isSubmitting}
-                  style={{
-                    width: '100%',
-                    height: '48px',
-                    background: 'var(--nv-primary, #76b900)',
-                    border: 'none',
-                    borderRadius: 'var(--rounded-xs, 2px)',
-                    color: '#000000',
-                    fontSize: '0.95rem',
-                    fontWeight: 900,
-                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  {isSubmitting ? (
-                    <span>กำลังส่งเข้าครัว...</span>
-                  ) : (
-                    <>
-                      <Sparkles size={16} />
-                      <span>ยืนยันการสั่งอาหาร (ส่งเข้าครัว)</span>
-                    </>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {orderStatusData?.requires_pin && (
+                    <div style={{
+                      padding: '8px 10px',
+                      background: tablePin ? 'rgba(118, 185, 0, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                      border: `1px solid ${tablePin ? 'rgba(118, 185, 0, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                      borderRadius: '2px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: '0.75rem'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Key size={14} color={tablePin ? 'var(--nv-primary, #76b900)' : '#fbbf24'} />
+                        <span style={{ color: tablePin ? '#86efac' : '#fbbf24', fontWeight: 600 }}>
+                          {tablePin ? 'รหัส PIN ประจำโต๊ะ: ยืนยันแล้ว' : 'ต้องใส่ PIN 4 หลักเพื่อส่งเข้าครัว'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPinError('');
+                          setPinInput(tablePin || '');
+                          setShowPinModal(true);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: tablePin ? 'var(--nv-primary, #76b900)' : '#fbbf24',
+                          textDecoration: 'underline',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          padding: 0
+                        }}
+                      >
+                        {tablePin ? 'เปลี่ยน PIN' : 'กรอก PIN'}
+                      </button>
+                    </div>
                   )}
-                </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSubmitOrder}
+                    disabled={isSubmitting}
+                    style={{
+                      width: '100%',
+                      height: '48px',
+                      background: 'var(--nv-primary, #76b900)',
+                      border: 'none',
+                      borderRadius: 'var(--rounded-xs, 2px)',
+                      color: '#000000',
+                      fontSize: '0.95rem',
+                      fontWeight: 900,
+                      cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    {isSubmitting ? (
+                      <span>กำลังส่งเข้าครัว...</span>
+                    ) : (
+                      <>
+                        <Sparkles size={16} />
+                        <span>ยืนยันการสั่งอาหาร (ส่งเข้าครัว)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -1376,6 +1505,263 @@ export const CustomerOrderView = ({ tableNumber }) => {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. Table Security PIN Modal */}
+      {showPinModal && (
+        <div
+          onClick={() => setShowPinModal(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.88)',
+            backdropFilter: 'blur(10px)',
+            zIndex: 1300,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem'
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '380px',
+              background: 'var(--nv-surface-dark, #121212)',
+              border: '1px solid var(--nv-hairline-strong, #27272a)',
+              borderRadius: 'var(--rounded-sm, 6px)',
+              overflow: 'hidden',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.9)'
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '1.25rem 1.25rem 1rem',
+              borderBottom: '1px solid var(--nv-hairline-strong, #27272a)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: '#000000'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  background: 'rgba(245, 158, 11, 0.2)',
+                  border: '1px solid rgba(245, 158, 11, 0.4)',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fbbf24'
+                }}>
+                  <Key size={18} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '0.98rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
+                    รหัส PIN ประจำโต๊ะ
+                  </h3>
+                  <div style={{ fontSize: '0.72rem', color: '#a1a1aa', marginTop: '1px' }}>
+                    โต๊ะ {tableNumber} • ความปลอดภัยการสั่งอาหาร
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPinModal(false)}
+                style={{ background: 'none', border: 'none', color: '#a1a1aa', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '1.25rem' }}>
+              <p style={{ fontSize: '0.78rem', color: '#d4d4d8', margin: '0 0 1rem', lineHeight: 1.45, textAlign: 'center' }}>
+                กรุณากรอกรหัส PIN 4 หลักที่พนักงานแจ้ง หรือดูจากใบเสร็จ/ป้ายเปิดโต๊ะ เพื่อยืนยันการสั่งอาหาร
+              </p>
+
+              {/* 4 Digit Boxes */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                gap: '12px',
+                marginBottom: '1rem'
+              }}>
+                {[0, 1, 2, 3].map(idx => {
+                  const digit = pinInput[idx];
+                  const isCurrent = pinInput.length === idx;
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        width: '48px',
+                        height: '54px',
+                        background: digit ? 'rgba(118, 185, 0, 0.12)' : 'var(--nv-surface-elevated, #18181b)',
+                        border: `2px solid ${
+                          digit 
+                            ? 'var(--nv-primary, #76b900)' 
+                            : isCurrent 
+                              ? '#fbbf24' 
+                              : 'var(--nv-hairline-strong, #3f3f46)'
+                        }`,
+                        borderRadius: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '1.6rem',
+                        fontWeight: 900,
+                        color: digit ? 'var(--nv-primary, #76b900)' : '#71717a',
+                        fontFamily: 'monospace',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {digit ? digit : ''}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Error Message */}
+              {pinError && (
+                <div style={{
+                  padding: '8px 12px',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: '4px',
+                  fontSize: '0.76rem',
+                  color: '#f87171',
+                  marginBottom: '1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                  <span>{pinError}</span>
+                </div>
+              )}
+
+              {/* Numeric Keypad Grid */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '8px',
+                marginBottom: '1rem'
+              }}>
+                {[
+                  '1', '2', '3',
+                  '4', '5', '6',
+                  '7', '8', '9',
+                  'C', '0', '⌫'
+                ].map(key => {
+                  const isSpecial = key === 'C' || key === '⌫';
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        setPinError('');
+                        if (key === 'C') {
+                          setPinInput('');
+                        } else if (key === '⌫') {
+                          setPinInput(prev => prev.slice(0, -1));
+                        } else {
+                          if (pinInput.length < 4) {
+                            const nextPin = pinInput + key;
+                            setPinInput(nextPin);
+                            // Auto verify when 4 digits reached
+                            if (nextPin.length === 4) {
+                              handleVerifyPinSubmit(nextPin);
+                            }
+                          }
+                        }
+                      }}
+                      style={{
+                        height: '52px',
+                        background: isSpecial ? 'rgba(255, 255, 255, 0.05)' : 'var(--nv-surface-elevated, #18181b)',
+                        border: '1px solid var(--nv-hairline-strong, #27272a)',
+                        borderRadius: '4px',
+                        color: isSpecial ? '#a1a1aa' : '#ffffff',
+                        fontSize: isSpecial ? '1rem' : '1.35rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        userSelect: 'none',
+                        transition: 'var(--transition-fast)'
+                      }}
+                      onMouseDown={e => {
+                        e.currentTarget.style.background = 'rgba(118, 185, 0, 0.2)';
+                        e.currentTarget.style.borderColor = 'var(--nv-primary, #76b900)';
+                      }}
+                      onMouseUp={e => {
+                        e.currentTarget.style.background = isSpecial ? 'rgba(255, 255, 255, 0.05)' : 'var(--nv-surface-elevated, #18181b)';
+                        e.currentTarget.style.borderColor = 'var(--nv-hairline-strong, #27272a)';
+                      }}
+                    >
+                      {key}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowPinModal(false)}
+                  style={{
+                    flex: 1,
+                    height: '42px',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid var(--nv-hairline-strong, #3f3f46)',
+                    borderRadius: 'var(--rounded-xs, 2px)',
+                    color: '#a1a1aa',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleVerifyPinSubmit()}
+                  disabled={pinInput.length !== 4 || isVerifyingPin}
+                  style={{
+                    flex: 2,
+                    height: '42px',
+                    background: pinInput.length === 4 ? 'var(--nv-primary, #76b900)' : '#27272a',
+                    border: 'none',
+                    borderRadius: 'var(--rounded-xs, 2px)',
+                    color: pinInput.length === 4 ? '#000000' : '#71717a',
+                    fontSize: '0.88rem',
+                    fontWeight: 900,
+                    cursor: pinInput.length === 4 && !isVerifyingPin ? 'pointer' : 'not-allowed',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isVerifyingPin ? (
+                    <span>กำลังตรวจสอบ...</span>
+                  ) : (
+                    <>
+                      <Check size={16} />
+                      <span>ยืนยันรหัส PIN</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

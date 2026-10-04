@@ -56,6 +56,7 @@ module.exports = (io) => {
   router.post('/customer/order', (req, res) => ordersController.customerOrder(req, res, io));
   router.get('/customer/order-status/:tableIdentifier', ordersController.getCustomerOrderStatus);
   router.post('/customer/call-staff', (req, res) => ordersController.customerCallStaff(req, res, io));
+  router.post('/customer/verify-pin', ordersController.verifyTablePin);
 
   // --- Billing & Checkout Routes ---
   router.post('/billing/request', (req, res) => billingController.requestBill(req, res, io));

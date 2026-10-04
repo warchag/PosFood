@@ -20,6 +20,7 @@ const getTables = async (req, res) => {
         t.status,
         t.guest_count,
         t.current_order_id,
+        t.current_pin,
         t.notes,
         o.order_number,
         o.total_amount as current_total,
@@ -29,7 +30,7 @@ const getTables = async (req, res) => {
       LEFT JOIN zones z ON t.zone_id = z.id
       LEFT JOIN orders o ON t.current_order_id = o.id AND o.status = 'active'
       LEFT JOIN order_items oi ON o.id = oi.order_id
-      GROUP BY t.id, z.name, z.display_order, o.order_number, o.total_amount, o.created_at
+      GROUP BY t.id, z.name, z.display_order, o.order_number, o.total_amount, o.created_at, t.current_pin
       ORDER BY z.display_order ASC, t.table_number ASC
     `;
     const result = await db.query(query);
@@ -200,24 +201,25 @@ const openTable = async (req, res, io) => {
 
     const table = tableRes.rows[0];
     const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
+    const sessionPin = Math.floor(1000 + Math.random() * 9000).toString();
 
-    // Create new order with staff attribution
+    // Create new order with staff attribution and session PIN
     const orderRes = await client.query(
-      `INSERT INTO orders (order_number, table_id, status, guest_count, notes, staff_id, staff_name)
-       VALUES ($1, $2, 'active', $3, $4, $5, $6)
+      `INSERT INTO orders (order_number, table_id, status, guest_count, notes, staff_id, staff_name, table_pin)
+       VALUES ($1, $2, 'active', $3, $4, $5, $6, $7)
        RETURNING *`,
-      [orderNumber, id, guest_count || 1, notes || null, staff_id || null, staff_name || null]
+      [orderNumber, id, guest_count || 1, notes || null, staff_id || null, staff_name || null, sessionPin]
     );
 
     const newOrder = orderRes.rows[0];
 
-    // Update table status
+    // Update table status with current_pin
     const updatedTableRes = await client.query(
       `UPDATE restaurant_tables
-       SET status = 'occupied', guest_count = $1, current_order_id = $2, notes = $3, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $4
+       SET status = 'occupied', guest_count = $1, current_order_id = $2, current_pin = $3, notes = $4, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5
        RETURNING *`,
-      [guest_count || 1, newOrder.id, notes || null, id]
+      [guest_count || 1, newOrder.id, sessionPin, notes || null, id]
     );
 
     await client.query('COMMIT');
@@ -400,10 +402,10 @@ const cancelTable = async (req, res, io) => {
       }
     }
 
-    // Reset table status to 'available'
+    // Reset table status to 'available' and clear current_pin
     const updatedTableRes = await client.query(
       `UPDATE restaurant_tables
-       SET status = 'available', current_order_id = NULL, guest_count = 0, notes = NULL, updated_at = CURRENT_TIMESTAMP
+       SET status = 'available', current_order_id = NULL, current_pin = NULL, guest_count = 0, notes = NULL, updated_at = CURRENT_TIMESTAMP
        WHERE id = $1
        RETURNING *`,
       [id]

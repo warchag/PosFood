@@ -133,11 +133,17 @@ export const TableQrModal = ({ table, onClose }) => {
           <div class="card">
             <div class="store-name">${storeName}</div>
             <div class="table-badge">โต๊ะ ${table.table_number}</div>
+            ${table.current_pin ? `
+            <div style="background: #fef3c7; border: 2px dashed #b45309; border-radius: 8px; padding: 6px 14px; margin: 0 auto 16px; display: inline-block;">
+              <span style="font-size: 13px; font-weight: 700; color: #92400e;">🔑 รหัส PIN ประจำโต๊ะ: </span>
+              <span style="font-size: 22px; font-weight: 900; letter-spacing: 4px; color: #b45309; font-family: monospace;">${table.current_pin}</span>
+            </div>
+            ` : ''}
             <img class="qr-img" src="${qrDataUrl}" alt="Table QR Code" />
             <div class="tagline">📱 สแกนเพื่อดูเมนู & สั่งอาหาร</div>
             <div class="instructions">
               เปิดกล้องมือถือสแกน QR Code นี้<br/>
-              สั่งอาหารง่าย ไม่ต้องรอเรียกพนักงาน
+              ${table.current_pin ? `สั่งอาหารง่าย รวดเร็ว (PIN: <strong>${table.current_pin}</strong>)` : 'สั่งอาหารง่าย ไม่ต้องรอเรียกพนักงาน'}
             </div>
             <div class="footer-url">${customerUrl}</div>
           </div>
@@ -257,10 +263,31 @@ export const TableQrModal = ({ table, onClose }) => {
               fontWeight: 900,
               padding: '4px 16px',
               borderRadius: 'var(--rounded-xs)',
-              margin: '10px 0 14px'
+              margin: '10px 0 8px'
             }}>
               โต๊ะ {table.table_number}
             </div>
+
+            {table.current_pin && (
+              <div style={{
+                background: '#fef3c7',
+                border: '1px dashed #d97706',
+                borderRadius: '6px',
+                padding: '4px 12px',
+                margin: '0 auto 12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '0.82rem',
+                fontWeight: 800,
+                color: '#92400e'
+              }}>
+                <span>🔑 รหัส PIN โต๊ะ:</span>
+                <span style={{ fontSize: '1.15rem', letterSpacing: '3px', color: '#b45309', fontFamily: 'monospace' }}>
+                  {table.current_pin}
+                </span>
+              </div>
+            )}
 
             {/* QR Image */}
             <div style={{

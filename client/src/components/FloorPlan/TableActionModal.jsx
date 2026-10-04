@@ -14,7 +14,8 @@ import {
   ChefHat,
   ChevronRight,
   UserX,
-  QrCode
+  QrCode,
+  Key
 } from 'lucide-react';
 
 export const TableActionModal = ({ 
@@ -133,11 +134,30 @@ export const TableActionModal = ({
         {/* Header */}
         <div className="modal-header">
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
               <h2>
                 โต๊ะ {table.table_number}
               </h2>
               {getStatusBadge()}
+              {table.current_pin && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'rgba(245, 158, 11, 0.15)',
+                  border: '1px solid #f59e0b',
+                  color: '#fbbf24',
+                  borderRadius: 'var(--rounded-xs, 2px)',
+                  padding: '2px 8px',
+                  fontSize: '0.78rem',
+                  fontWeight: 800
+                }}
+                title="รหัส PIN 4 หลักสำหรับให้ลูกค้าที่โต๊ะกรอกยืนยันสั่งอาหาร"
+                >
+                  <Key size={12} color="#fbbf24" />
+                  <span>PIN: {table.current_pin}</span>
+                </div>
+              )}
             </div>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '3px' }}>
               {table.zone_name} • รองรับ {table.capacity} ที่นั่ง

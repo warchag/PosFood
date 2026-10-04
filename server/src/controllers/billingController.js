@@ -108,7 +108,7 @@ const processPayment = async (req, res, io) => {
     // 4. Reset table status to available
     const tableRes = await client.query(
       `UPDATE restaurant_tables 
-       SET status = 'available', current_order_id = NULL, guest_count = 0, notes = NULL, updated_at = CURRENT_TIMESTAMP 
+       SET status = 'available', current_order_id = NULL, current_pin = NULL, guest_count = 0, notes = NULL, updated_at = CURRENT_TIMESTAMP 
        WHERE id = $1 
        RETURNING *`,
       [order.table_id]

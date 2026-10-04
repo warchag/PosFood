@@ -249,7 +249,7 @@ const getKitchenQueue = async (req, res) => {
 
 // Customer Mobile Order (Self-ordering via QR code)
 const customerOrder = async (req, res, io) => {
-  let { table_id, table_number, items, guest_count, notes } = req.body;
+  let { table_id, table_number, items, guest_count, notes, pin } = req.body;
 
   if (!items || items.length === 0) {
     return res.status(400).json({ success: false, error: 'กรุณาเลือกรายการอาหารก่อนยืนยัน' });
@@ -283,7 +283,7 @@ const customerOrder = async (req, res, io) => {
     table_id = table.id;
     let orderId = table.current_order_id;
 
-    // Security Check: Table MUST be opened by staff first!
+    // Security Check 1: Table MUST be opened by staff first!
     if (table.status === 'available') {
       await client.query('ROLLBACK');
       return res.status(403).json({
@@ -291,6 +291,19 @@ const customerOrder = async (req, res, io) => {
         error: `โต๊ะ ${table.table_number} ยังไม่ได้เปิดให้บริการ กรุณาแจ้งพนักงานเพื่อเปิดโต๊ะก่อนส่งออเดอร์`,
         code: 'TABLE_NOT_OPEN'
       });
+    }
+
+    // Security Check 2: Session Table PIN Verification
+    if (table.current_pin) {
+      const providedPin = (pin || '').toString().trim();
+      if (!providedPin || providedPin !== table.current_pin.toString().trim()) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          success: false,
+          error: 'รหัสโต๊ะ (PIN) ไม่ถูกต้อง กรุณาสอบถามรหัส 4 หลักจากพนักงานที่ร้าน',
+          code: 'INVALID_PIN'
+        });
+      }
     }
 
     // 2. If table is opened but no order ID yet, create one
@@ -395,6 +408,7 @@ const getCustomerOrderStatus = async (req, res) => {
           table_id: table.id,
           table_status: table.status,
           is_table_open: isTableOpen,
+          requires_pin: isTableOpen && !!table.current_pin,
           has_active_order: false,
           items: []
         }
@@ -410,6 +424,7 @@ const getCustomerOrderStatus = async (req, res) => {
           table_id: table.id,
           table_status: table.status,
           is_table_open: isTableOpen,
+          requires_pin: isTableOpen && !!table.current_pin,
           has_active_order: false,
           items: []
         }
@@ -433,6 +448,7 @@ const getCustomerOrderStatus = async (req, res) => {
         table_id: table.id,
         table_status: table.status,
         is_table_open: isTableOpen,
+        requires_pin: isTableOpen && !!table.current_pin,
         has_active_order: true,
         order: {
           id: order.id,
@@ -483,6 +499,31 @@ const customerCallStaff = async (req, res, io) => {
   });
 };
 
+// Customer verifies table PIN
+const verifyTablePin = async (req, res) => {
+  const { table_number, pin } = req.body;
+  if (!table_number || !pin) {
+    return res.status(400).json({ success: false, error: 'กรุณากรอกรหัสโต๊ะให้ครบถ้วน' });
+  }
+  try {
+    const tableRes = await db.query('SELECT id, table_number, status, current_pin FROM restaurant_tables WHERE table_number = $1', [table_number]);
+    if (tableRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'ไม่พบโต๊ะอาหารนี้' });
+    }
+    const table = tableRes.rows[0];
+    if (table.status === 'available') {
+      return res.status(403).json({ success: false, error: 'โต๊ะยังไม่เปิดให้บริการ', code: 'TABLE_NOT_OPEN' });
+    }
+    if (!table.current_pin || table.current_pin.toString().trim() === pin.toString().trim()) {
+      return res.json({ success: true, message: 'รหัสโต๊ะถูกต้อง' });
+    } else {
+      return res.status(403).json({ success: false, error: 'รหัสโต๊ะ (PIN) ไม่ถูกต้อง กรุณาสอบถามพนักงานที่ร้าน', code: 'INVALID_PIN' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 module.exports = {
   getOrder,
   addItems,
@@ -491,5 +532,6 @@ module.exports = {
   recalculateOrder,
   customerOrder,
   getCustomerOrderStatus,
-  customerCallStaff
+  customerCallStaff,
+  verifyTablePin
 };

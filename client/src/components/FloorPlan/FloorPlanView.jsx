@@ -21,7 +21,8 @@ import {
   X,
   Trash2,
   Edit3,
-  QrCode
+  QrCode,
+  Key
 } from 'lucide-react';
 
 export const FloorPlanView = ({ onSelectTable }) => {
@@ -499,6 +500,34 @@ export const FloorPlanView = ({ onSelectTable }) => {
                 {table.current_total && parseFloat(table.current_total) > 0 && (
                   <div className="table-bill-badge">
                     ฿{parseFloat(table.current_total).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </div>
+                )}
+
+                {/* Session PIN Badge for QR ordering security */}
+                {table.status !== 'available' && table.current_pin && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '-9px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: '#000000',
+                    border: '1px solid #f59e0b',
+                    color: '#fbbf24',
+                    fontSize: '0.65rem',
+                    fontWeight: 800,
+                    borderRadius: '2px',
+                    padding: '1px 6px',
+                    whiteSpace: 'nowrap',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.6)',
+                    zIndex: 25
+                  }}
+                  title="รหัสเปิดโต๊ะ (PIN) สำหรับให้ลูกค้ากรอกในมือถือ"
+                  >
+                    <Key size={10} color="#fbbf24" />
+                    <span>PIN {table.current_pin}</span>
                   </div>
                 )}
 
