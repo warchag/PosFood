@@ -247,10 +247,230 @@ const getKitchenQueue = async (req, res) => {
   }
 };
 
+// Customer Mobile Order (Self-ordering via QR code)
+const customerOrder = async (req, res, io) => {
+  let { table_id, table_number, items, guest_count, notes } = req.body;
+
+  if (!items || items.length === 0) {
+    return res.status(400).json({ success: false, error: 'กรุณาเลือกรายการอาหารก่อนยืนยัน' });
+  }
+
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Locate table by ID or table_number
+    let tableQuery = 'SELECT * FROM restaurant_tables WHERE ';
+    let tableParams = [];
+    if (table_id) {
+      tableQuery += 'id = $1 FOR UPDATE';
+      tableParams.push(table_id);
+    } else if (table_number) {
+      tableQuery += 'table_number = $1 FOR UPDATE';
+      tableParams.push(table_number);
+    } else {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลโต๊ะอาหาร' });
+    }
+
+    const tableRes = await client.query(tableQuery, tableParams);
+    if (tableRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'ไม่พบโต๊ะอาหารนี้ในระบบ' });
+    }
+
+    const table = tableRes.rows[0];
+    table_id = table.id;
+    let orderId = table.current_order_id;
+
+    // 2. If table doesn't have an active order, create one
+    if (!orderId || table.status === 'available') {
+      const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
+      const orderRes = await client.query(
+        `INSERT INTO orders (order_number, table_id, status, guest_count, notes, staff_name, vat_rate, service_charge_rate)
+         VALUES ($1, $2, 'active', $3, $4, 'ลูกค้าสั่งเอง (QR)', 7.00, 0.00)
+         RETURNING id`,
+        [orderNumber, table_id, guest_count || table.guest_count || 1, notes || 'สั่งผ่านมือถือ (QR)']
+      );
+      orderId = orderRes.rows[0].id;
+    }
+
+    // 3. Insert items
+    for (const item of items) {
+      const qty = parseInt(item.quantity || 1, 10);
+      const unitPrice = parseFloat(item.price || item.unit_price || 0);
+      const totalPrice = unitPrice * qty;
+      await client.query(
+        `INSERT INTO order_items (order_id, menu_item_id, item_name, unit_price, quantity, total_price, notes, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')`,
+        [orderId, item.id || item.menu_item_id || null, item.name || item.item_name, unitPrice, qty, totalPrice, item.notes || '']
+      );
+    }
+
+    // 4. Recalculate
+    const updatedOrder = await recalculateOrder(client, orderId);
+
+    // 5. Update table to 'ordered'
+    await client.query(
+      `UPDATE restaurant_tables 
+       SET status = 'ordered', current_order_id = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [orderId, table_id]
+    );
+
+    await client.query('COMMIT');
+
+    // 6. Real-time broadcast
+    if (io) {
+      io.emit('order:updated', { table_id, order_id: orderId });
+      io.emit('table:opened', { table_id });
+      io.emit('kitchen:new_order', { 
+        table_number: table.table_number, 
+        items,
+        source: 'customer_qr',
+        timestamp: new Date().toISOString()
+      });
+      io.emit('customer:order_submitted', {
+        table_number: table.table_number,
+        items_count: items.reduce((sum, it) => sum + (it.quantity || 1), 0),
+        total_amount: updatedOrder.total_amount,
+        time: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'ส่งออเดอร์เข้าครัวเรียบร้อยแล้ว',
+      data: {
+        orderId,
+        orderNumber: updatedOrder.order_number,
+        totalAmount: updatedOrder.total_amount,
+        table_number: table.table_number
+      }
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error in customer order:', err);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    client.release();
+  }
+};
+
+// Customer order tracking by table
+const getCustomerOrderStatus = async (req, res) => {
+  const { tableIdentifier } = req.params;
+  try {
+    let tableQuery = 'SELECT * FROM restaurant_tables WHERE ';
+    let params = [tableIdentifier];
+    if (/^\d+$/.test(tableIdentifier)) {
+      tableQuery += 'id = $1';
+    } else {
+      tableQuery += 'table_number = $1';
+    }
+
+    const tableRes = await db.query(tableQuery, params);
+    if (tableRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'ไม่พบโต๊ะอาหาร' });
+    }
+
+    const table = tableRes.rows[0];
+    if (!table.current_order_id || table.status === 'available') {
+      return res.json({
+        success: true,
+        data: {
+          table_number: table.table_number,
+          table_id: table.id,
+          has_active_order: false,
+          items: []
+        }
+      });
+    }
+
+    const orderRes = await db.query('SELECT * FROM orders WHERE id = $1', [table.current_order_id]);
+    if (orderRes.rows.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          table_number: table.table_number,
+          table_id: table.id,
+          has_active_order: false,
+          items: []
+        }
+      });
+    }
+
+    const order = orderRes.rows[0];
+    const itemsRes = await db.query(
+      `SELECT oi.*, m.image_url 
+       FROM order_items oi
+       LEFT JOIN menu_items m ON oi.menu_item_id = m.id
+       WHERE oi.order_id = $1
+       ORDER BY oi.id ASC`,
+      [order.id]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        table_number: table.table_number,
+        table_id: table.id,
+        has_active_order: true,
+        order: {
+          id: order.id,
+          order_number: order.order_number,
+          status: order.status,
+          total_amount: order.total_amount,
+          subtotal: order.subtotal,
+          created_at: order.created_at
+        },
+        items: itemsRes.rows
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// Customer calls staff or requests bill
+const customerCallStaff = async (req, res, io) => {
+  const { table_number, type = 'call_waiter', notes } = req.body;
+  if (!table_number) {
+    return res.status(400).json({ success: false, error: 'ไม่พบหมายเลขโต๊ะ' });
+  }
+
+  const callTypeNames = {
+    call_waiter: 'เรียกพนักงานบริการ',
+    bill: 'ขอเช็คบิล / ชำระเงิน',
+    water: 'ขอน้ำเปล่า / น้ำแข็ง',
+    cutlery: 'ขอจาน / ช้อนส้อม'
+  };
+
+  const message = callTypeNames[type] || 'ต้องการความช่วยเหลือ';
+
+  if (io) {
+    io.emit('staff:call', {
+      table_number,
+      type,
+      message,
+      notes: notes || '',
+      time: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+    });
+  }
+
+  res.json({
+    success: true,
+    message: `แจ้งพนักงานเรียบร้อยแล้ว: ${message}`
+  });
+};
+
 module.exports = {
   getOrder,
   addItems,
   updateItemStatus,
   getKitchenQueue,
-  recalculateOrder
+  recalculateOrder,
+  customerOrder,
+  getCustomerOrderStatus,
+  customerCallStaff
 };

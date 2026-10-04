@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { usePos } from '../../context/PosContext';
+import { TableQrModal } from './TableQrModal';
 import { 
   X, 
   Users, 
@@ -12,7 +13,8 @@ import {
   Check, 
   ChefHat,
   ChevronRight,
-  UserX
+  UserX,
+  QrCode
 } from 'lucide-react';
 
 export const TableActionModal = ({ 
@@ -22,6 +24,7 @@ export const TableActionModal = ({
   onOpenCheckout,
   onOpenReceipt
 }) => {
+  const [showQrModal, setShowQrModal] = useState(false);
   const { 
     openTable, 
     cancelTable,
@@ -332,18 +335,30 @@ export const TableActionModal = ({
         {/* Footer Actions */}
         <div className="modal-footer" style={{ padding: '0.85rem 1.25rem' }}>
           {table.status === 'available' ? (
-            <>
-              <button className="btn btn-secondary" onClick={onClose}>
-                ยกเลิก
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+              <button 
+                type="button"
+                className="btn btn-secondary" 
+                onClick={() => setShowQrModal(true)}
+                title="สร้าง QR Code ให้ลูกค้าสแกนสั่งอาหารเอง"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <QrCode size={15} />
+                QR สั่งอาหาร
               </button>
-              <button className="btn btn-primary" onClick={handleOpenTable}>
-                <Utensils size={16} />
-                เปิดโต๊ะและสั่งอาหาร
-              </button>
-            </>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={onClose}>
+                  ยกเลิก
+                </button>
+                <button className="btn btn-primary" onClick={handleOpenTable}>
+                  <Utensils size={16} />
+                  เปิดโต๊ะและสั่งอาหาร
+                </button>
+              </div>
+            </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', width: '100%' }}>
-              {/* Row 1: Table Operations Bar (Cancel table, Transfer, Print bill, Close) */}
+              {/* Row 1: Table Operations Bar (Cancel table, Transfer, Print bill, QR code, Close) */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                   <button
@@ -355,7 +370,7 @@ export const TableActionModal = ({
                     title="ยกเลิกการเปิดโต๊ะ และคืนสถานะเป็นโต๊ะว่าง (กรณีลูกค้าเปลี่ยนใจไม่สั่ง)"
                   >
                     <UserX size={14} />
-                    {cancelling ? 'กำลังยกเลิก...' : 'ยกเลิกเปิดโต๊ะ (คืนโต๊ะว่าง)'}
+                    {cancelling ? 'กำลังยกเลิก...' : 'ยกเลิกเปิดโต๊ะ'}
                   </button>
 
                   <button 
@@ -367,6 +382,17 @@ export const TableActionModal = ({
                   >
                     <ArrowRightLeft size={14} />
                     {isTransferring ? 'ปิดย้ายโต๊ะ' : 'ย้ายโต๊ะ'}
+                  </button>
+
+                  <button 
+                    type="button"
+                    className="btn btn-secondary" 
+                    style={{ height: '34px', fontSize: '0.8rem', padding: '0 10px' }}
+                    onClick={() => setShowQrModal(true)}
+                    title="แสดง QR Code สั่งอาหารประจำโต๊ะนี้"
+                  >
+                    <QrCode size={14} />
+                    QR โต๊ะ
                   </button>
 
                   {orderData?.items?.length > 0 && (
@@ -418,6 +444,14 @@ export const TableActionModal = ({
             </div>
           )}
         </div>
+
+        {/* Table QR Code Modal */}
+        {showQrModal && (
+          <TableQrModal
+            table={table}
+            onClose={() => setShowQrModal(false)}
+          />
+        )}
       </div>
     </div>
   );

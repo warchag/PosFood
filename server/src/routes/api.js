@@ -52,6 +52,11 @@ module.exports = (io) => {
   router.patch('/order-items/:itemId/status', (req, res) => ordersController.updateItemStatus(req, res, io));
   router.get('/kitchen/queue', ordersController.getKitchenQueue);
 
+  // --- Customer Mobile QR Ordering Routes ---
+  router.post('/customer/order', (req, res) => ordersController.customerOrder(req, res, io));
+  router.get('/customer/order-status/:tableIdentifier', ordersController.getCustomerOrderStatus);
+  router.post('/customer/call-staff', (req, res) => ordersController.customerCallStaff(req, res, io));
+
   // --- Billing & Checkout Routes ---
   router.post('/billing/request', (req, res) => billingController.requestBill(req, res, io));
   router.put('/billing/settings/:orderId', billingController.updateBillSettings);

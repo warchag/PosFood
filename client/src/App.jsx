@@ -10,6 +10,8 @@ import { DailyReport } from './components/Reports/DailyReport';
 import { MenuAdminView } from './components/Admin/MenuAdminView';
 import { SystemStatusFooter } from './components/Common/SystemStatusFooter';
 import { PinLoginModal } from './components/Auth/PinLoginModal';
+import { CustomerOrderView } from './components/Customer/CustomerOrderView';
+import { io } from 'socket.io-client';
 import { 
   Square,
   LayoutGrid, 
@@ -26,7 +28,9 @@ import {
   User,
   Lock,
   LogOut,
-  ShieldCheck
+  ShieldCheck,
+  Bell,
+  X
 } from 'lucide-react';
 
 const MainAppContent = () => {
@@ -45,7 +49,54 @@ const MainAppContent = () => {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [requiredRoleForAction, setRequiredRoleForAction] = useState(null);
   const [pendingTabAfterAuth, setPendingTabAfterAuth] = useState(null);
+  const [staffAlert, setStaffAlert] = useState(null);
   
+  // Real-time listener for customer QR orders and staff calls
+  useEffect(() => {
+    const s = io(window.location.origin);
+    s.on('customer:order_submitted', (data) => {
+      setStaffAlert({
+        id: Date.now(),
+        type: 'order',
+        title: `🔔 โต๊ะ ${data.table_number} สั่งอาหารผ่าน QR!`,
+        message: `${data.items_count} รายการ (฿${parseFloat(data.total_amount).toFixed(2)}) • ${data.time}`
+      });
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+      } catch (e) {}
+    });
+
+    s.on('staff:call', (data) => {
+      setStaffAlert({
+        id: Date.now(),
+        type: 'call',
+        title: `🛎️ โต๊ะ ${data.table_number}: ${data.message}`,
+        message: `เวลา ${data.time}`
+      });
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(1100, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.45);
+      } catch (e) {}
+    });
+
+    return () => s.disconnect();
+  }, []);
+
   // Theme state: defaults to 'light' (Paper-white canvas with dark header/footer per design.md)
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('siam_pos_theme') || 'light';
@@ -284,6 +335,43 @@ const MainAppContent = () => {
         </div>
       </header>
 
+      {/* Real-time Customer QR Alert Banner */}
+      {staffAlert && (
+        <div style={{
+          background: staffAlert.type === 'call' ? '#ef4444' : 'var(--nv-primary)',
+          color: staffAlert.type === 'call' ? '#ffffff' : '#000000',
+          padding: '8px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontWeight: 700,
+          fontSize: '0.84rem',
+          zIndex: 999,
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.4)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{staffAlert.title}</span>
+            <span style={{ opacity: 0.85, fontSize: '0.76rem', fontWeight: 600 }}>{staffAlert.message}</span>
+          </div>
+          <button 
+            type="button"
+            onClick={() => setStaffAlert(null)}
+            style={{
+              background: 'rgba(0, 0, 0, 0.15)',
+              border: 'none',
+              borderRadius: '2px',
+              color: 'inherit',
+              cursor: 'pointer',
+              padding: '2px 6px',
+              display: 'flex',
+              alignItems: 'center'
+            }}
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
+
       {/* 3. MAIN CONTENT CANVAS */}
       <main className="main-layout">
         {activeTab === 'floor' && (
@@ -366,6 +454,13 @@ const MainAppContent = () => {
 };
 
 export default function App() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const tableParam = urlParams.get('table');
+
+  if (tableParam) {
+    return <CustomerOrderView tableNumber={tableParam} />;
+  }
+
   return (
     <PosProvider>
       <MainAppContent />
